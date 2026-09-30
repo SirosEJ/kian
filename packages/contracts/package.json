@@ -1,0 +1,10 @@
+{
+  "name": "@kian/contracts",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "exports": { ".": "./dist/tasks.js" },
+  "types": "./dist/tasks.d.ts",
+  "scripts": { "test": "vitest run --passWithNoTests", "typecheck": "tsc --noEmit", "build": "tsc -p tsconfig.build.json" },
+  "dependencies": { "zod": "^4.1.0" }
+}

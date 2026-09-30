@@ -1,0 +1,25 @@
+{
+  "name": "@kian/api",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "vitest run",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/server.js"
+  },
+  "dependencies": {
+    "@kian/contracts": "workspace:*",
+    "@kian/connectors": "workspace:*",
+    "@kian/db": "workspace:*",
+    "fastify": "^5.6.0",
+    "firebase-admin": "^13.0.0",
+    "openai": "^7.15.0",
+    "pg": "^8.0.0"
+  },
+  "devDependencies": {
+    "@electric-sql/pglite": "0.3.15",
+    "@types/pg": "^8.0.0"
+  }
+}

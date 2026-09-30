@@ -1,0 +1,68 @@
+import { randomUUID } from 'node:crypto';
+import type { Queryable, Task } from '@kian/db';
+import { evaluateTrust } from '../trust/policy.js';
+
+const failure = (statusCode: number, message: string) => Object.assign(new Error(message), { statusCode });
+export type StoredProposal = { connectionId: string | null; destination: string | null; fields: Record<string, unknown>; uncertainties: string[] };
+
+export function createApprovalService(db: Queryable) {
+  return {
+    async decideTask(ownerId: string, taskId: string, version: number, decision: 'approve' | 'reject', optionalRule?: { connectionId:string; action:string; destinations:string[] }): Promise<Task> {
+      if ('connect' in db && typeof db.connect === 'function') {
+        const client = await (db as Queryable & {connect:()=>Promise<Queryable & {release:()=>void}>}).connect();
+        try { await client.query('BEGIN'); const result = await createApprovalService(client).decideTask(ownerId,taskId,version,decision,optionalRule); await client.query('COMMIT'); return result; }
+        catch (error) { await client.query('ROLLBACK'); throw error; }
+        finally { client.release(); }
+      }
+      if (optionalRule && decision !== 'approve') throw failure(422, 'Trust can only follow approval');
+      if (optionalRule) {
+        const current = await db.query('SELECT action,parameters,version,state FROM tasks WHERE owner_id=$1 AND id=$2', [ownerId,taskId]);
+        if (!current.rows.length) throw failure(404, 'Task not found');
+        const { action, parameters, version: currentVersion, state } = current.rows[0] as {action:string;parameters:StoredProposal;version:number;state:string};
+        if (currentVersion !== version || state !== 'proposed') throw failure(409, 'Task changed or was already decided');
+        if (optionalRule.connectionId !== parameters.connectionId || optionalRule.action !== action || !parameters.destination || optionalRule.destinations.length !== 1 || optionalRule.destinations[0] !== parameters.destination ||
+          !evaluateTrust(ownerId, { action, connectionId:parameters.connectionId, destination:parameters.destination, parameters:parameters.fields, uncertainties:parameters.uncertainties }, [{ id:'candidate', ownerId, ...optionalRule, revokedAt:null }]).allowed) throw failure(422, 'Trust scope must match this task');
+        const connection = await db.query('SELECT id FROM connections WHERE owner_id=$1 AND id=$2 AND disconnected_at IS NULL', [ownerId,optionalRule.connectionId]);
+        if (!connection.rows.length) throw failure(422, 'Connect a service before trusting it');
+      }
+      const state = decision === 'approve' ? 'queued' : 'rejected';
+      const result = await db.query('UPDATE tasks SET state=$4,version=version+1 WHERE owner_id=$1 AND id=$2 AND version=$3 AND state=$5 AND ( $4=$6 OR jsonb_array_length(COALESCE(parameters->\'uncertainties\',\'[]\'::jsonb))=0 ) RETURNING id,owner_id,action,state,parameters,version', [ownerId,taskId,version,state,'proposed','rejected']);
+      const task = result.rows[0] as Task | undefined;
+      if (!task) {
+        const exists = await db.query('SELECT version,state FROM tasks WHERE owner_id=$1 AND id=$2', [ownerId,taskId]);
+        if (!exists.rows.length) throw failure(404, 'Task not found');
+        if (decision === 'approve' && exists.rows[0].version === version && exists.rows[0].state === 'proposed') throw failure(422, 'Clarification required');
+        throw failure(409, 'Task changed or was already decided');
+      }
+      await db.query('INSERT INTO activity(id,owner_id,task_id,event,details) VALUES ($1,$2,$3,$4,$5)', [randomUUID(),ownerId,taskId,decision === 'approve' ? 'task.approved' : 'task.rejected',JSON.stringify({ version })]);
+      if (optionalRule && decision === 'approve') {
+        await db.query('INSERT INTO trust_rules(id,owner_id,connection_id,action,constraints) VALUES ($1,$2,$3,$4,$5)', [randomUUID(),ownerId,optionalRule.connectionId,optionalRule.action,JSON.stringify({ destinations: optionalRule.destinations })]);
+      }
+      return task;
+    },
+    async editTask(ownerId: string, taskId: string, version: number, proposal: StoredProposal): Promise<Task> {
+      if ('connect' in db && typeof db.connect === 'function') {
+        const client = await (db as Queryable & {connect:()=>Promise<Queryable & {release:()=>void}>}).connect();
+        try { await client.query('BEGIN'); const result = await createApprovalService(client).editTask(ownerId,taskId,version,proposal); await client.query('COMMIT'); return result; }
+        catch (error) { await client.query('ROLLBACK'); throw error; }
+        finally { client.release(); }
+      }
+      const result = await db.query("UPDATE tasks SET state='proposed',parameters=$4,version=version+1 WHERE owner_id=$1 AND id=$2 AND version=$3 AND state='proposed' RETURNING id,owner_id,action,state,parameters,version", [ownerId,taskId,version,JSON.stringify(proposal)]);
+      const task = result.rows[0] as Task | undefined;
+      if (!task) throw failure(409, 'Task changed or inaccessible');
+      await db.query('INSERT INTO activity(id,owner_id,task_id,event,details) VALUES ($1,$2,$3,$4,$5)', [randomUUID(),ownerId,taskId,'task.edited',JSON.stringify({ version:task.version })]);
+      return task;
+    },
+    async listActivity(ownerId: string) {
+      const result = await db.query('SELECT id,task_id,event,details,created_at FROM activity WHERE owner_id=$1 ORDER BY created_at DESC,id DESC', [ownerId]);
+      return result.rows as { id:string; task_id:string; event:string; details:unknown; created_at:Date }[];
+    },
+    async listRules(ownerId: string) {
+      return (await db.query('SELECT id,connection_id,action,constraints,revoked_at FROM trust_rules WHERE owner_id=$1 ORDER BY created_at DESC', [ownerId])).rows;
+    },
+    async revokeRule(ownerId: string, id: string) {
+      const result = await db.query('UPDATE trust_rules SET revoked_at=now() WHERE owner_id=$1 AND id=$2 AND revoked_at IS NULL RETURNING id', [ownerId,id]);
+      if (!result.rows.length) throw failure(404, 'Rule not found');
+    },
+  };
+}
