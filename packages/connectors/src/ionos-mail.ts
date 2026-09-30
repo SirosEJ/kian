@@ -44,7 +44,7 @@ export class IonosMailConnector implements Connector<IonosConnection,EmailComman
   }
   async execute(connection:IonosConnection,command:EmailCommand,idempotencyKey:string):Promise<ExecutionResult> {
     this.validate(command);
-    const mail=this.makeTransport(connection),messageId=`<${createHash('sha256').update(idempotencyKey).digest('hex')}@kian.local>`;
+    const mail=this.makeTransport(connection),messageId=`<${createHash('sha256').update(idempotencyKey).digest('hex')}@${connection.user.split('@')[1]}>`;
     try {
       const result=await mail.sendMail({from:connection.user,to:command.to,subject:command.subject,text:command.body,messageId});
       if(result.rejected?.length || result.accepted?.length!==command.to.length) return {status:'uncertain',externalId:result.messageId || messageId,error:'Some recipients may have received this message. Check the mailbox before sending again.'};
