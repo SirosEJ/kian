@@ -42,6 +42,7 @@ export function Dashboard() {
   return <section><h2>What would you like Kian to do?</h2><Recorder onRecorded={transcribe}/>
     <form onSubmit={submit}><label>Type an instruction<textarea required value={text} onChange={event => setText(event.target.value)} placeholder="Create a Jira story, book a meeting, or write an email" /></label><button disabled={busy} type="submit">Review tasks</button></form>
     {error && <p role="alert">{error}</p>}
+    {tasks.length === 0 && <p>Welcome to Kian. Connect Google Calendar, Jira Cloud or your mailbox in Settings below, then type or record an instruction. Kian shows every proposed action for your approval before anything happens.</p>}
     {tasks.length > 0 && <section aria-label="Proposed tasks"><h3>Your tasks</h3><button onClick={refreshTasks}>Refresh tasks</button>{tasks.map(task => <TaskReview key={task.id} task={task} onChange={changed=>setTasks(current=>current.map(t=>t.id===changed.id ? changed : t))} />)}</section>}
   </section>;
 }

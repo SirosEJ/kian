@@ -4,6 +4,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { readFile } from 'node:fs/promises';
 import { registerDecisionRoutes } from '../../src/modules/tasks/activity.js';
 import { createRequireUser } from '../../src/modules/identity/session.js';
+import { registerConnectionRoutes } from '../../src/modules/connections/routes.js';
 import { createRunner } from '../../src/modules/execution/runner.js';
 
 describe('sandbox account boundaries',()=>{
@@ -29,6 +30,29 @@ describe('sandbox account boundaries',()=>{
     const manual=await app.inject({method:'POST',url:'/tasks/auto/decision',headers:{authorization:'Bearer alice'},payload:{version:2,decision:'approve'}});
     expect(manual.json().state).toBe('succeeded');
     expect(execute).toHaveBeenCalledTimes(1);
+    await app.close();await db.close();
+  });
+
+  it('hides a first user\'s tasks, connections and trust rules from a second user',async()=>{
+    const db=new PGlite();
+    await db.exec(await readFile(new URL('../../../../packages/db/migrations/001_core.sql',import.meta.url),'utf8'));
+    await db.query<Record<string,unknown>>("INSERT INTO users(id) VALUES ('alice'),('bob')");
+    await db.query<Record<string,unknown>>("INSERT INTO connections(id,owner_id,provider,display_name) VALUES ('mail','alice','ionos','Mailbox')");
+    await db.query<Record<string,unknown>>("INSERT INTO trust_rules(id,owner_id,connection_id,action,constraints) VALUES ('rule','alice','mail','email.send',$1)",[JSON.stringify({destinations:['to@example.com']})]);
+    await db.query<Record<string,unknown>>("INSERT INTO tasks(id,owner_id,action,state,parameters) VALUES ('t','alice','email.send','proposed',$1)",[JSON.stringify({connectionId:'mail',destination:'to@example.com',fields:{},uncertainties:[]})]);
+    const app=Fastify();
+    const auth=createRequireUser(async token=>({uid:token}));
+    registerDecisionRoutes(app,db,auth);
+    registerConnectionRoutes(app,db,auth,{clientId:'c',clientSecret:'s',redirectUri:'https://kian.example',encryptionKey:Buffer.alloc(32,1)});
+    const as=(user:string)=>({authorization:`Bearer ${user}`});
+    expect((await app.inject({url:'/connections',headers:as('bob')})).json()).toEqual([]);
+    expect((await app.inject({url:'/connections',headers:as('alice')})).json()).toHaveLength(1);
+    expect((await app.inject({url:'/trust-rules',headers:as('bob')})).json()).toEqual([]);
+    expect((await app.inject({method:'DELETE',url:'/trust-rules/rule',headers:as('bob')})).statusCode).toBe(404);
+    expect((await app.inject({method:'DELETE',url:'/connections/mail',headers:as('bob')})).statusCode).toBe(404);
+    expect((await app.inject({method:'PATCH',url:'/tasks/t',headers:as('bob'),payload:{version:1,proposal:{destination:'x@example.com',uncertainties:[],fields:{}}}})).statusCode).toBe(409);
+    expect((await db.query<Record<string,unknown>>("SELECT version FROM tasks WHERE id='t'")).rows[0]).toEqual({version:1});
+    expect((await db.query<Record<string,unknown>>("SELECT disconnected_at,(SELECT revoked_at FROM trust_rules WHERE id='rule') AS revoked FROM connections WHERE id='mail'")).rows[0]).toEqual({disconnected_at:null,revoked:null});
     await app.close();await db.close();
   });
 });
