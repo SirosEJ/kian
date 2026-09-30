@@ -30,7 +30,7 @@ Watch queued age, uncertain outcomes, authentication failures and worker error l
 
 Instructions, proposals, trust rules, execution receipts and activity remain until account deletion. Raw microphone audio is not saved to the database; it is sent to the transcription provider, whose account retention settings must be confirmed. Instruction text is sent to the planning provider. Select retention periods, disclose these data flows, document support access and publish privacy/terms before public onboarding.
 
-Self-service account deletion and scheduled retention pruning are not implemented. For an authenticated, verified deletion request, the operator deletes the corresponding `users` row using a parameterized UID query (dependent customer records cascade), deletes the Firebase user and revokes provider grants as appropriate. Deletion does not delete objects already created in external providers. Test the procedure in staging and define how backups expire before launch.
+Self-service account deletion is implemented (`DELETE /account`, see `account-lifecycle.md`); scheduled retention pruning is not. For a manual deletion request, the operator deletes the corresponding `users` row using a parameterized UID query (dependent customer records cascade), deletes the Firebase user and revokes provider grants as appropriate. Deletion does not delete objects already created in external providers. Test the procedure in staging and define how backups expire before launch.
 
 ## Release checklist
 
