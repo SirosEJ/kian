@@ -28,7 +28,7 @@ COPY --from=build /app/apps/api/package.json apps/api/package.json
 COPY --from=build /app/packages/db/package.json packages/db/package.json
 COPY --from=build /app/packages/contracts/package.json packages/contracts/package.json
 COPY --from=build /app/packages/connectors/package.json packages/connectors/package.json
-RUN pnpm install --prod --filter @kian/api --frozen-lockfile
+RUN pnpm install --prod --filter "@kian/api..." --frozen-lockfile
 COPY --from=build /app/apps/api/dist apps/api/dist
 COPY --from=build /app/packages/db/dist packages/db/dist
 COPY --from=build /app/packages/db/migrations packages/db/migrations
