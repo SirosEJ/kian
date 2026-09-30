@@ -1,3 +1,4 @@
+import { snapshotJiraFields } from '../connections/jira-mapping.js';
 import { randomUUID } from 'node:crypto';
 import type { Queryable, Task } from '@kian/db';
 import { evaluateTrust } from '../trust/policy.js';
@@ -26,7 +27,7 @@ export function createApprovalService(db: Queryable) {
         if (!connection.rows.length) throw failure(422, 'Connect a service before trusting it');
       }
       const state = decision === 'approve' ? 'queued' : 'rejected';
-      const result = await db.query('UPDATE tasks SET state=$4,version=version+1 WHERE owner_id=$1 AND id=$2 AND version=$3 AND state=$5 AND ( $4=$6 OR jsonb_array_length(COALESCE(parameters->\'uncertainties\',\'[]\'::jsonb))=0 ) RETURNING id,owner_id,action,state,parameters,version', [ownerId,taskId,version,state,'proposed','rejected']);
+      const result = await db.query('UPDATE tasks SET state=$4,version=version+1,parameters=parameters - \'trustRuleId\' WHERE owner_id=$1 AND id=$2 AND version=$3 AND state=$5 AND ( $4=$6 OR jsonb_array_length(COALESCE(parameters->\'uncertainties\',\'[]\'::jsonb))=0 ) RETURNING id,owner_id,action,state,parameters,version', [ownerId,taskId,version,state,'proposed','rejected']);
       const task = result.rows[0] as Task | undefined;
       if (!task) {
         const exists = await db.query('SELECT version,state FROM tasks WHERE owner_id=$1 AND id=$2', [ownerId,taskId]);
@@ -46,6 +47,10 @@ export function createApprovalService(db: Queryable) {
         try { await client.query('BEGIN'); const result = await createApprovalService(client).editTask(ownerId,taskId,version,proposal); await client.query('COMMIT'); return result; }
         catch (error) { await client.query('ROLLBACK'); throw error; }
         finally { client.release(); }
+      }
+      if(proposal.connectionId) {
+        const connection=(await db.query('SELECT provider,settings FROM connections WHERE owner_id=$1 AND id=$2 AND disconnected_at IS NULL',[ownerId,proposal.connectionId])).rows[0];
+        if(connection?.provider==='jira') proposal={...proposal,fields:snapshotJiraFields(proposal.fields,connection.settings)};
       }
       const result = await db.query("UPDATE tasks SET state='proposed',parameters=$4,version=version+1 WHERE owner_id=$1 AND id=$2 AND version=$3 AND state='proposed' RETURNING id,owner_id,action,state,parameters,version", [ownerId,taskId,version,JSON.stringify(proposal)]);
       const task = result.rows[0] as Task | undefined;

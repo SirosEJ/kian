@@ -13,7 +13,12 @@ COPY packages/db packages/db
 COPY packages/contracts packages/contracts
 COPY packages/connectors packages/connectors
 COPY apps/api apps/api
-RUN pnpm --filter @kian/api... build
+COPY apps/web apps/web
+ARG VITE_FIREBASE_API_KEY
+ARG VITE_FIREBASE_AUTH_DOMAIN
+ARG VITE_FIREBASE_PROJECT_ID
+ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY VITE_FIREBASE_AUTH_DOMAIN=$VITE_FIREBASE_AUTH_DOMAIN VITE_FIREBASE_PROJECT_ID=$VITE_FIREBASE_PROJECT_ID
+RUN pnpm build
 
 FROM node:24-alpine
 RUN corepack enable
@@ -26,8 +31,11 @@ COPY --from=build /app/packages/connectors/package.json packages/connectors/pack
 RUN pnpm install --prod --filter @kian/api --frozen-lockfile
 COPY --from=build /app/apps/api/dist apps/api/dist
 COPY --from=build /app/packages/db/dist packages/db/dist
+COPY --from=build /app/packages/db/migrations packages/db/migrations
+COPY scripts scripts
 COPY --from=build /app/packages/contracts/dist packages/contracts/dist
 COPY --from=build /app/packages/connectors/dist packages/connectors/dist
-ENV NODE_ENV=production PORT=8080
+COPY --from=build /app/apps/web/dist apps/web/dist
+ENV NODE_ENV=production PORT=8080 WEB_DIST_PATH=/app/apps/web/dist
 EXPOSE 8080
 CMD ["node", "apps/api/dist/server.js"]

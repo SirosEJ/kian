@@ -3,7 +3,7 @@ export type TrustProposal = { action: string; connectionId: string | null; desti
 
 export function evaluateTrust(ownerId: string, proposal: TrustProposal, activeRules: TrustRule[]): { allowed: boolean; ruleId?: string; reason?: string } {
   if (proposal.uncertainties.length) return { allowed: false, reason: 'Clarification required' };
-  if (!['calendar.create','calendar.update','jira.create','jira.update','email.send'].includes(proposal.action)) return { allowed: false, reason: 'Action requires review' };
+  if (!['calendar.create','jira.create','email.send'].includes(proposal.action)) return { allowed: false, reason: 'Action requires review' };
   if (!proposal.connectionId || !proposal.destination) return { allowed: false, reason: 'Destination required' };
   const recipients = proposal.action === 'email.send' ? proposal.parameters.to : undefined;
   if (proposal.action === 'email.send' && (!Array.isArray(recipients) || !recipients.length || recipients.some(r => typeof r !== 'string' || r.toLowerCase() !== proposal.destination?.toLowerCase()))) return { allowed: false, reason: 'Recipient requires review' };

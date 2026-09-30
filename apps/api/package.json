@@ -10,8 +10,9 @@
     "start": "node dist/server.js"
   },
   "dependencies": {
-    "@kian/contracts": "workspace:*",
+    "@fastify/static": "10.1.5",
     "@kian/connectors": "workspace:*",
+    "@kian/contracts": "workspace:*",
     "@kian/db": "workspace:*",
     "fastify": "^5.6.0",
     "firebase-admin": "^13.0.0",

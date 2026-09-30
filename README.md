@@ -6,7 +6,7 @@ Standalone personal organiser web app. The first release is specified in `docs/s
 
 Use Node 24 and pnpm 11.25.0. Run `pnpm install`, then `pnpm test`, `pnpm typecheck`, and `pnpm build`.
 
-For the web app, set `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, and `VITE_FIREBASE_PROJECT_ID` for a Firebase project with Email/Password sign-in enabled. For the API, configure application default credentials for the same Firebase project and `DATABASE_URL`; apply `packages/db/migrations/001_core.sql` before serving authenticated requests. These values belong in deployment secrets or local ignored environment files.
+For the web app, set `VITE_FIREBASE_API_KEY`, `VITE_FIREBASE_AUTH_DOMAIN`, and `VITE_FIREBASE_PROJECT_ID` for a Firebase project with Email/Password sign-in enabled. For the API, configure application default credentials for the same Firebase project and `DATABASE_URL`; run `pnpm db:migrate` on a fresh database before serving authenticated requests. These values belong in deployment secrets or local ignored environment files.
 
 ## Identity decision
 
@@ -23,3 +23,7 @@ Jira setup requires a Kian OAuth 2.0 (3LO) app registered in Atlassian Developer
 IONOS mailbox Settings verifies TLS SMTP access before saving encrypted credentials. The approved recipients, subject and body are sent once per task version. An uncertain send is never automatically retried. SMTP acknowledgement means accepted by the server, not delivered to an inbox, and does not guarantee a Sent-folder copy. Supported candidate hosts are smtp.ionos.co.uk, smtp.ionos.com and smtp.ionos.de on TLS port 465; a controlled live mailbox test must verify the chosen host before release.
 
 The worker checks queued tasks every 15 seconds and resumes pending work after restart. Configure the runtime with continuous CPU (Cloud Run instance-based billing) for background execution. Interrupted in-flight work older than five minutes becomes uncertain and requires provider inspection.
+
+## Release preparation
+
+The Docker image now serves the web app and API together. See [demo runbook](docs/demo-runbook.md) and [operations](docs/operations.md) for configuration, live evidence requirements and recovery. `pnpm test:e2e` runs sandbox API journeys, not a live browser/provider demo. Teams, WhatsApp and Zoom remain planned integrations.

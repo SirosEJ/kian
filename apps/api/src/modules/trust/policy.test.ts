@@ -15,6 +15,7 @@ describe('constrained trust', () => {
     expect(evaluateTrust('alice', proposal, [{ ...rule, revokedAt: new Date() }]).allowed).toBe(false);
   });
   it('rejects destructive actions and a new project or calendar', () => {
+    for (const action of ['calendar.update','jira.update']) expect(evaluateTrust('alice',{...proposal,action},[{...rule,action}]).allowed).toBe(false);
     expect(evaluateTrust('alice', { ...proposal, action: 'calendar.delete' }, [{ ...rule, action: 'calendar.delete' }]).allowed).toBe(false);
     expect(evaluateTrust('alice', { ...proposal, action: 'jira.create', destination: 'NEW' }, [{ ...rule, action: 'jira.create', destinations: ['SFT'] }]).allowed).toBe(false);
     expect(evaluateTrust('alice', { ...proposal, action: 'calendar.create', destination: 'other' }, [{ ...rule, action: 'calendar.create', destinations: ['primary'] }]).allowed).toBe(false);

@@ -5,7 +5,9 @@
   "scripts": {
     "test": "pnpm --filter './packages/**' build && pnpm -r test",
     "typecheck": "pnpm --filter './packages/**' build && pnpm -r typecheck",
-    "build": "pnpm -r build"
+    "build": "pnpm -r build",
+    "test:e2e": "pnpm --filter './packages/**' build && pnpm --filter @kian/api exec vitest run tests/e2e",
+    "db:migrate": "node scripts/migrate.mjs"
   },
   "devDependencies": {
     "@types/node": "^24.0.0",

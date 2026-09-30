@@ -6,7 +6,7 @@ export type JiraSite={id:string;name:string;url:string;scopes:string[]};
 type Field={fieldId?:string;required?:boolean;hasDefaultValue?:boolean};
 
 export class JiraConnector implements Connector<JiraConnection,JiraCommand> {
-  constructor(private readonly request:typeof fetch=fetch) {}
+  constructor(private readonly request:typeof fetch=(input,init)=>fetch(input,{...init,signal:AbortSignal.timeout(30000)})) {}
   async connect(input:unknown):Promise<JiraConnection> {
     const value=input as JiraConnection;
     if(!value?.accessToken || !value.siteId || !value.siteUrl) throw new Error('Jira authorization and site selection required');

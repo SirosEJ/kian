@@ -1,3 +1,4 @@
+import { saveJiraMapping } from './jira-mapping.js';
 import { randomBytes,randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Queryable } from '@kian/db';
@@ -13,7 +14,7 @@ export async function getJiraConnection(db:Queryable,owner:string,id:string,conf
   if(!row) throw error(404,'Connection not found');
   let tokens=decryptSecret<Tokens>(row.secret_ciphertext,config.encryptionKey);
   if(!tokens.expires_at || tokens.expires_at<=Date.now()+60000) {
-    const response=await (config.request || fetch)('https://auth.atlassian.com/oauth/token',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({grant_type:'refresh_token',client_id:config.clientId,client_secret:config.clientSecret,refresh_token:tokens.refresh_token})});
+    const response=await (config.request || ((input,init)=>fetch(input,{...init,signal:AbortSignal.timeout(30000)})))('https://auth.atlassian.com/oauth/token',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({grant_type:'refresh_token',client_id:config.clientId,client_secret:config.clientSecret,refresh_token:tokens.refresh_token})});
     if(!response.ok) throw error(422,'Jira access expired. Reconnect in Settings.');
     const fresh=await response.json() as {access_token?:string;refresh_token?:string;expires_in?:number};
     if(!fresh.access_token || !fresh.refresh_token) throw error(502,'Jira token renewal failed');
@@ -24,7 +25,7 @@ export async function getJiraConnection(db:Queryable,owner:string,id:string,conf
 }
 
 export function registerJiraConnectionRoutes(app:FastifyInstance,db:Queryable,authenticate:(req:{headers:{authorization?:string}})=>Promise<string>,config:JiraConfig) {
-  const request=config.request || fetch,jira=new JiraConnector(request);
+  const request=config.request || ((input,init)=>fetch(input,{...init,signal:AbortSignal.timeout(30000)})),jira=new JiraConnector(request);
   app.post('/connections/jira/start',async req=>{
     const owner=await authenticate(req),state=`jira_${randomBytes(32).toString('base64url')}`;
     await db.query('INSERT INTO users(id) VALUES ($1) ON CONFLICT (id) DO NOTHING',[owner]);
@@ -56,7 +57,7 @@ export function registerJiraConnectionRoutes(app:FastifyInstance,db:Queryable,au
     const owner=await authenticate(req),connection=await getJiraConnection(db,owner,req.params.id,config);
     const site=(await jira.listSites(connection.accessToken)).find(site=>site.id===req.body?.siteId);
     if(!site) return reply.code(422).send({error:'Select an authorized Jira site'});
-    await db.query('UPDATE connections SET settings=$3 WHERE owner_id=$1 AND id=$2',[owner,req.params.id,JSON.stringify({siteId:site.id,siteUrl:site.url,destination:null,issueTypeId:null})]);
+    await saveJiraMapping(db,owner,req.params.id,{siteId:site.id,siteUrl:site.url,destination:null,issueTypeId:null},true);
     return {id:req.params.id,siteId:site.id,siteUrl:site.url};
   });
   app.get<{Params:{id:string}}>('/connections/jira/:id/projects',async req=>{
@@ -71,7 +72,7 @@ export function registerJiraConnectionRoutes(app:FastifyInstance,db:Queryable,au
     await jira.connect(connection);
     const project=(await jira.listDestinations(connection)).find(p=>p.projectKey===req.body?.projectKey);
     if(!project || !project.issueTypes.some(type=>type.id===req.body?.issueTypeId)) return reply.code(422).send({error:'Select an accessible project and issue type'});
-    await db.query("UPDATE connections SET settings=settings || $3::jsonb WHERE owner_id=$1 AND id=$2",[owner,req.params.id,JSON.stringify({destination:project.projectKey,issueTypeId:req.body.issueTypeId})]);
+    await saveJiraMapping(db,owner,req.params.id,{destination:project.projectKey,issueTypeId:req.body.issueTypeId});
     return {id:req.params.id,projectKey:project.projectKey,issueTypeId:req.body.issueTypeId};
   });
   app.get<{Params:{id:string;project:string;type:string}}>('/connections/jira/:id/fields/:project/:type',async req=>{

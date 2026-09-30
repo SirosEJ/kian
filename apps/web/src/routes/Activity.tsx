@@ -1,8 +1,8 @@
-import { useEffect, useState } from 'react';
+import { useEffect,useState } from 'react';
 import { apiRequest } from '../api.js';
 export function Activity() {
-  const [events, setEvents] = useState<{id:string;event:string;created_at:string;task_id:string}[]>([]);
-  function reload() {void apiRequest('/activity').then(setEvents).catch(()=>{});}
+  const [events,setEvents]=useState<{id:string;event:string;created_at:string;details:{externalId?:string;link?:string;error?:string}}[]>([]),[error,setError]=useState('');
+  function reload() {void apiRequest('/activity').then(items=>{setEvents(items);setError('');}).catch(()=>setError('Could not load activity.'));}
   useEffect(reload,[]);
-  return <section><h2>Activity</h2><button onClick={reload}>Refresh activity</button><ul>{events.map(e=><li key={e.id}>{new Date(e.created_at).toLocaleString()}: {e.event} ({e.task_id})</li>)}</ul></section>;
+  return <section><h2>Activity</h2><button onClick={reload}>Refresh activity</button>{error && <p role="alert">{error}</p>}<ul>{events.map(e=><li key={e.id}>{new Date(e.created_at).toLocaleString()}: {e.event.replace('task.','').replaceAll('.',' ')} {e.details.externalId && <span>{e.details.externalId}</span>}{e.details.link && /^https:\/\//.test(e.details.link) && <a href={e.details.link} target="_blank" rel="noreferrer">Open result</a>}{e.details.error && <p>{e.details.error}</p>}</li>)}</ul></section>;
 }

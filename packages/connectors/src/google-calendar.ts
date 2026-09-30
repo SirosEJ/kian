@@ -5,7 +5,7 @@ export type GoogleConnection = { accessToken:string };
 export type CalendarCommand = { action:'calendar.create'|'calendar.update'; calendarId:string; summary:string; start:string; end:string; timeZone:string; eventId?:string; description?:string };
 
 export class GoogleCalendarConnector implements Connector<GoogleConnection,CalendarCommand> {
-  constructor(private readonly request: typeof fetch = fetch) {}
+  constructor(private readonly request: typeof fetch = (input,init)=>fetch(input,{...init,signal:AbortSignal.timeout(30000)})) {}
   async connect(input:unknown): Promise<GoogleConnection> {
     if (!input || typeof input !== 'object' || !('accessToken' in input) || typeof input.accessToken !== 'string') throw new Error('Google authorization required');
     return { accessToken:input.accessToken };

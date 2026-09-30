@@ -20,6 +20,8 @@ export function Dashboard() {
   const [busy, setBusy] = useState(false);
   useEffect(()=>{void apiRequest('/tasks').then(setTasks).catch(()=>{});},[]);
 
+  function refreshTasks() {void apiRequest('/tasks').then(setTasks).catch(()=>setError('Could not refresh tasks.'));}
+
   async function transcribe(blob: Blob) {
     if (blob.size > 10 * 1024 * 1024) { setError('Recording exceeds 10 MB. Please use a shorter recording.'); return; }
     setBusy(true); setError('');
@@ -32,7 +34,7 @@ export function Dashboard() {
     event.preventDefault(); setBusy(true); setError('');
     try {
       const result = await apiRequest('/instructions', 'POST', { text, locale: navigator.language, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
-      setTasks(result.tasks);
+      setTasks(current=>[...result.tasks,...current]);
     } catch { setError('Could not prepare tasks. Check the instruction or connection and try again.'); }
     finally { setBusy(false); }
   }
@@ -40,6 +42,6 @@ export function Dashboard() {
   return <section><h2>What would you like Kian to do?</h2><Recorder onRecorded={transcribe}/>
     <form onSubmit={submit}><label>Type an instruction<textarea required value={text} onChange={event => setText(event.target.value)} placeholder="Create a Jira story, book a meeting, or write an email" /></label><button disabled={busy} type="submit">Review tasks</button></form>
     {error && <p role="alert">{error}</p>}
-    {tasks.length > 0 && <section aria-label="Proposed tasks"><h3>Proposed tasks</h3>{tasks.map(task => <TaskReview key={task.id} task={task} onChange={changed=>setTasks(current=>current.map(t=>t.id===changed.id ? changed : t))} />)}</section>}
+    {tasks.length > 0 && <section aria-label="Proposed tasks"><h3>Your tasks</h3><button onClick={refreshTasks}>Refresh tasks</button>{tasks.map(task => <TaskReview key={task.id} task={task} onChange={changed=>setTasks(current=>current.map(t=>t.id===changed.id ? changed : t))} />)}</section>}
   </section>;
 }

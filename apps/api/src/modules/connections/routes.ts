@@ -21,7 +21,7 @@ export async function getGoogleAccessToken(db:Queryable,owner:string,id:string,c
   if(!row) throw error(404,'Connection not found');
   const token=decryptSecret<{access_token:string;refresh_token:string;expires_at?:number}>(row.secret_ciphertext,config.encryptionKey);
   if(token.expires_at && token.expires_at>Date.now()+60000) return token.access_token;
-  const response=await (config.request || fetch)('https://oauth2.googleapis.com/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({client_id:config.clientId,client_secret:config.clientSecret,refresh_token:token.refresh_token,grant_type:'refresh_token'})});
+  const response=await (config.request || ((input,init)=>fetch(input,{...init,signal:AbortSignal.timeout(30000)})))('https://oauth2.googleapis.com/token',{method:'POST',headers:{'Content-Type':'application/x-www-form-urlencoded'},body:new URLSearchParams({client_id:config.clientId,client_secret:config.clientSecret,refresh_token:token.refresh_token,grant_type:'refresh_token'})});
   if(!response.ok) throw error(422,'Google access expired. Reconnect in Settings.');
   const refreshed=await response.json() as {access_token?:string;expires_in?:number};
   if(!refreshed.access_token) throw error(502,'Google token refresh failed');
@@ -31,7 +31,7 @@ export async function getGoogleAccessToken(db:Queryable,owner:string,id:string,c
 }
 
 export function registerConnectionRoutes(app:FastifyInstance,db:Queryable,authenticate:(request:{headers:{authorization?:string}})=>Promise<string>,config:GoogleConfig) {
-  const request=config.request || fetch,google=new GoogleCalendarConnector(request);
+  const request=config.request || ((input,init)=>fetch(input,{...init,signal:AbortSignal.timeout(30000)})),google=new GoogleCalendarConnector(request);
   app.post('/connections/google/start',async req=>{
     if(!config.clientId || !config.clientSecret || !config.redirectUri) throw error(503,'Google Calendar is not configured');
     const owner=await authenticate(req),state=randomBytes(32).toString('base64url');

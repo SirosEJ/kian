@@ -6,7 +6,7 @@
 
 **Architecture:** A React web client talks to a Fastify API. The API owns user-scoped task state, connection references, confirmation and trust policy. A worker executes typed connector commands and records outcomes; AI text is untrusted input and cannot authorize a write.
 
-**Tech Stack:** New private GitHub repository `SirosEJ/kian` (proposed name), pnpm/TypeScript monorepo, React/Vite web client, Fastify API, PostgreSQL, Vitest, Cloud Run. Use a managed OIDC identity service selected during Task 1; do not create a custom password database. Match Sepenta's existing pnpm, TypeScript, Fastify, PostgreSQL and Cloud Run conventions where practical. Pin current supported dependency versions and confirm provider capabilities during implementation.
+**Tech Stack:** Public GitHub repository `SirosEJ/kian` (visibility approved by the user), pnpm/TypeScript monorepo, React/Vite web client, Fastify API, PostgreSQL, Vitest, Cloud Run. Use a managed OIDC identity service selected during Task 1; do not create a custom password database. Match Sepenta's existing pnpm, TypeScript, Fastify, PostgreSQL and Cloud Run conventions where practical. Pin current supported dependency versions and confirm provider capabilities during implementation.
 
 **Spec:** `Kian-first-release-design.md` (30 September 2026, approved). Copy this spec into the repository as `docs/superpowers/specs/2026-09-30-kian-first-release-design.md` when the repository is created.
 
@@ -43,7 +43,7 @@
 - `packages/db/migrations/`: user, connection, instruction, task, rule and activity tables.
 - `tests/e2e/`: browser and provider-sandbox journeys.
 
-These are paths for a new repository, not claims that the repository exists yet. Create it only after plan review and execution choice.
+The repository now exists. This approved checklist preserves the originally planned acceptance scope. See `docs/progress.md` and `docs/demo-runbook.md` for verified implementation results and pending live checks. Sandboxed API journeys live in `apps/api/tests/e2e/`; full browser/provider checks require staging configuration.
 
 ---
 
@@ -145,4 +145,4 @@ These are paths for a new repository, not claims that the repository exists yet.
 
 ## Handoff
 
-Review this plan and the approved spec before creating the repository. The plan names proposed files and interfaces, while provider API details and exact supported dependency versions are verified at execution. Production launch requires the verified staging journey, privacy/retention decisions, and explicit release approval.
+The plan and specification were approved; implementation checkpoints are saved in the repository. The plan names proposed files and interfaces, while provider API details and exact supported dependency versions are verified at execution. Production launch requires the verified staging journey, privacy/retention decisions, and explicit release approval.

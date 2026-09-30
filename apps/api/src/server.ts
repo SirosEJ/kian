@@ -1,3 +1,6 @@
+import { snapshotJiraFields } from './modules/connections/jira-mapping.js';
+import { join } from 'node:path';
+import fastifyStatic from '@fastify/static';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { Pool } from 'pg';
 import { KianRepository, type Task } from '@kian/db';
@@ -13,10 +16,15 @@ import { createRunner } from './modules/execution/runner.js';
 import { createProviderExecutor } from './modules/execution/providers.js';
 
 type TaskReader = { getTask(ownerId: string, taskId: string): Promise<Task | null> };
-type ServerOptions = { verifyToken?: VerifyToken; repository?: TaskReader; taskRoutes?: TaskRoutes };
+type ServerOptions = { webDistPath?:string; verifyToken?: VerifyToken; repository?: TaskReader; taskRoutes?: TaskRoutes };
 
 export function buildServer(options: ServerOptions = {}): FastifyInstance {
   const app = Fastify({ logger: true });
+  const webDistPath=options.webDistPath || process.env.WEB_DIST_PATH;
+  if(webDistPath) {
+    app.register(fastifyStatic,{root:join(webDistPath,'assets'),prefix:'/assets/',wildcard:true});
+    app.get('/',async(_request,reply)=>reply.sendFile('index.html',webDistPath));
+  }
   app.get('/health', async () => ({ status: 'ok' }));
   const authenticate = options.verifyToken ? createRequireUser(options.verifyToken) : requireUser;
   const pool = !options.repository && process.env.DATABASE_URL ? new Pool({ connectionString: process.env.DATABASE_URL }) : null;
@@ -56,7 +64,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
           const provider=original.action.startsWith('calendar.') ? 'google_calendar' : original.action.startsWith('jira.') ? 'jira' : 'ionos';
           const candidates=connections.filter(c=>c.provider===provider && (!original.connectionId || original.connectionId===c.id));
           const chosen=candidates.length===1 ? candidates[0] : null;
-          const task={...original,connectionId:chosen?.id || null,destination:original.destination || chosen?.settings.destination || null};
+          const task={...original,parameters:provider==='jira' && chosen ? snapshotJiraFields(original.parameters,chosen.settings):original.parameters,connectionId:chosen?.id || null,destination:original.destination || chosen?.settings.destination || null};
           const trust = evaluateTrust(ownerId, task, rules);
           const state = trust.allowed ? 'queued' : 'proposed';
           await client.query('INSERT INTO tasks (id,owner_id,instruction_id,action,state,parameters) VALUES ($1,$2,$3,$4,$5,$6)', [task.id,ownerId,instructionId,task.action,state,JSON.stringify({ connectionId: task.connectionId, destination: task.destination, fields: task.parameters, uncertainties: task.uncertainties,trustRuleId:trust.ruleId })]);
@@ -86,7 +94,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       } catch(error) {app.log.error({error},'Task worker failed');}
       finally {draining=false;}
     };
-    app.addHook('onReady',async()=>{await drain();timer=setInterval(()=>void drain(),15000);timer.unref();});
+    app.addHook('onListen',async()=>{timer=setInterval(()=>void drain(),15000);timer.unref();void drain();});
     app.addHook('onClose',async()=>{if(timer) clearInterval(timer);});
   }
   app.addHook('onClose', async () => { if (pool) await pool.end(); });
