@@ -2,13 +2,15 @@ import type { FastifyInstance } from 'fastify';
 import { createApprovalService, type StoredProposal } from './approval.js';
 import type { Queryable } from '@kian/db';
 
-export function registerDecisionRoutes(app: FastifyInstance, db: Queryable, authenticate: (request: { headers: { authorization?: string } }) => Promise<string>) {
+export function registerDecisionRoutes(app: FastifyInstance, db: Queryable, authenticate: (request: { headers: { authorization?: string } }) => Promise<string>,onQueued?:(owner:string,id:string)=>Promise<unknown>) {
   const service = createApprovalService(db);
   app.post<{Params:{id:string};Body:{version:number;decision:'approve'|'reject';trust?:{connectionId:string;action:string;destinations:string[]}}}>('/tasks/:id/decision', async (request, reply) => {
     const owner = await authenticate(request);
     const { version, decision, trust } = request.body || {} as never;
     if (!Number.isSafeInteger(version) || version < 1 || !['approve','reject'].includes(decision) || (trust && (typeof trust.connectionId !== 'string' || typeof trust.action !== 'string' || !Array.isArray(trust.destinations)))) return reply.code(400).send({ error:'Invalid decision' });
-    return service.decideTask(owner, request.params.id, version, decision, trust);
+    const task=await service.decideTask(owner, request.params.id, version, decision, trust);
+    if(task.state==='queued' && onQueued) {await onQueued(owner,task.id);return (await db.query('SELECT id,owner_id,action,state,parameters,version FROM tasks WHERE owner_id=$1 AND id=$2',[owner,task.id])).rows[0];}
+    return task;
   });
   app.patch<{Params:{id:string};Body:{version:number;proposal:StoredProposal}}>('/tasks/:id', async (request, reply) => {
     const owner = await authenticate(request);

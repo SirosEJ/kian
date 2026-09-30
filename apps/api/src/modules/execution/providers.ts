@@ -1,0 +1,43 @@
+import type { Queryable } from '@kian/db';
+import { GoogleCalendarConnector,JiraConnector,IonosMailConnector,type IonosConnection,type CalendarCommand,type EmailCommand } from '@kian/connectors';
+import { decryptSecret,getGoogleAccessToken,type GoogleConfig } from '../connections/routes.js';
+import { getJiraConnection,type JiraConfig } from '../connections/jira-routes.js';
+import type { Executor } from './runner.js';
+import type { StoredProposal } from '../tasks/approval.js';
+
+export function createProviderExecutor(db:Queryable,key:Buffer,google?:GoogleConfig,jira?:JiraConfig):Executor {
+  return async(owner,task,idempotencyKey)=>{
+    const proposal=task.parameters as StoredProposal;
+    if(!proposal.connectionId || !proposal.destination || proposal.uncertainties?.length) return {status:'failed',error:'A connection, destination and clarified task are required.'};
+    const connection=(await db.query('SELECT provider,secret_ciphertext,settings FROM connections WHERE owner_id=$1 AND id=$2 AND disconnected_at IS NULL',[owner,proposal.connectionId])).rows[0];
+    if(!connection) return {status:'failed',error:'Connection is unavailable. Reconnect in Settings.'};
+    const p=proposal.fields;
+    if(task.action.startsWith('calendar.')) {
+      if(!google || connection.provider!=='google_calendar') return {status:'failed',error:'Google Calendar is not configured for this task.'};
+      const adapter=new GoogleCalendarConnector(),token={accessToken:await getGoogleAccessToken(db,owner,proposal.connectionId,google)};
+      if(!(await adapter.listDestinations(token)).some(c=>c.id===proposal.destination && c.canWrite)) return {status:'failed',error:'The approved calendar is no longer writable.'};
+      const command={action:task.action,calendarId:proposal.destination,summary:p.summary,start:p.start,end:p.end,timeZone:p.timeZone,eventId:p.eventId,description:p.description} as CalendarCommand;
+      try {adapter.validate(command);} catch {return {status:'failed',error:'Check the event title, exact start/end times and time zone.'};}
+      return adapter.execute(token,command,idempotencyKey);
+    }
+    if(task.action.startsWith('jira.')) {
+      if(!jira || connection.provider!=='jira') return {status:'failed',error:'Jira is not configured for this task.'};
+      const adapter=new JiraConnector(),authorized=await getJiraConnection(db,owner,proposal.connectionId,jira);
+      await adapter.connect(authorized);
+      const fields=typeof p.fields==='object' && p.fields!==null && !Array.isArray(p.fields) ? {...p.fields as Record<string,unknown>}:{};
+      if(p.summary!==undefined) fields.summary=p.summary;
+      if(p.description!==undefined) fields.description=p.description;
+      const command={action:task.action as 'jira.create'|'jira.update',projectKey:proposal.destination,issueTypeId:String(p.issueTypeId || connection.settings.issueTypeId || ''),issueKey:typeof p.issueKey==='string' ? p.issueKey:undefined,fields};
+      try {adapter.validate(command);} catch {return {status:'failed',error:'Check the selected Jira project, issue type, summary and issue key.'};}
+      return adapter.execute(authorized,command,idempotencyKey);
+    }
+    if(task.action==='email.send') {
+      if(connection.provider!=='ionos') return {status:'failed',error:'Select an IONOS mailbox for this email.'};
+      const adapter=new IonosMailConnector(),command={action:'email.send',to:p.to,subject:p.subject,body:p.body} as EmailCommand;
+      try {adapter.validate(command);} catch {return {status:'failed',error:'Check exact recipient addresses, subject and message body.'};}
+      const mailbox=decryptSecret<IonosConnection>(connection.secret_ciphertext,key);
+      return adapter.execute(mailbox,command,idempotencyKey);
+    }
+    return {status:'failed',error:'Unsupported action'};
+  };
+}

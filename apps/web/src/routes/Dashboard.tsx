@@ -1,4 +1,4 @@
-import { useState, type FormEvent } from 'react';
+import { useEffect,useState, type FormEvent } from 'react';
 import { apiRequest } from '../api.js';
 import { Recorder } from '../features/recording/Recorder.js';
 import { TaskReview, type ReviewTask } from './TaskReview.js';
@@ -18,6 +18,7 @@ export function Dashboard() {
   const [tasks, setTasks] = useState<ReviewTask[]>([]);
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
+  useEffect(()=>{void apiRequest('/tasks').then(setTasks).catch(()=>{});},[]);
 
   async function transcribe(blob: Blob) {
     if (blob.size > 10 * 1024 * 1024) { setError('Recording exceeds 10 MB. Please use a shorter recording.'); return; }

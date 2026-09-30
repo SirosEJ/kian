@@ -35,7 +35,7 @@ CREATE TABLE tasks (
   id text PRIMARY KEY,
   owner_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
   action text NOT NULL,
-  state text NOT NULL CHECK (state IN ('proposed','approved','rejected','queued','succeeded','failed','uncertain')),
+  state text NOT NULL CHECK (state IN ('proposed','approved','rejected','queued','executing','succeeded','failed','uncertain')),
   parameters jsonb NOT NULL,
   instruction_id text REFERENCES instructions(id) ON DELETE SET NULL,
   version integer NOT NULL DEFAULT 1,
@@ -63,3 +63,15 @@ CREATE TABLE activity (
   created_at timestamptz NOT NULL DEFAULT now()
 );
 CREATE INDEX activity_owner ON activity(owner_id);
+
+CREATE TABLE executions (
+  id text PRIMARY KEY,
+  owner_id text NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  task_id text NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+  task_version integer NOT NULL,
+  status text NOT NULL CHECK (status IN ('running','succeeded','failed','uncertain')),
+  result jsonb,
+  created_at timestamptz NOT NULL DEFAULT now(),
+  completed_at timestamptz,
+  UNIQUE (task_id,task_version)
+);
