@@ -9,7 +9,7 @@ describe('IONOS email semantics',()=>{
     const adapter=new IonosMailConnector(()=>({verify:async()=>true,sendMail,close:()=>{}}));
     expect(await adapter.test(connection)).toBe(true);
     expect((await adapter.execute(connection,command,'task-1:2')).status).toBe('succeeded');
-    expect(sendMail.mock.calls[0]?.[0]).toMatchObject({from:'siros@sepenta.io',to:['solmaz@example.com'],subject:'Agenda',text:'Approved agenda'});
+    expect(sendMail.mock.calls[0]?.[0]).toMatchObject({from:'siros@sepenta.io',to:['solmaz@example.com'],subject:'Agenda',text:'Approved agenda',messageId:expect.stringMatching(/^<[0-9a-f]{64}@sepenta\.io>$/)});
     expect(()=>adapter.validate({...command,to:['Solmaz']})).toThrow('recipient');
     expect(()=>adapter.validate({...command,subject:'Agenda\r\nBcc: bad@example.com'})).toThrow('subject');
   });
@@ -23,3 +23,16 @@ describe('IONOS email semantics',()=>{
     expect(sendMail).toHaveBeenCalledTimes(1);
   });
 });
+
+describe('IONOS failure reasons',()=>{
+  const failing=(error:object)=>new IonosMailConnector(()=>({verify:async()=>{throw Object.assign(new Error('x'),error);},sendMail:async()=>({}),close:()=>{}}));
+  it('classifies credential, host, TLS and timeout failures',async()=>{
+    expect(await failing({code:'EAUTH'}).diagnose(connection)).toEqual({ok:false,reason:'auth'});
+    expect(await failing({code:'ENOTFOUND'}).diagnose(connection)).toEqual({ok:false,reason:'host'});
+    expect(await failing({code:'ESOCKET',message:'certificate has expired'}).diagnose(connection)).toEqual({ok:false,reason:'tls'});
+    expect(await failing({code:'ETIMEDOUT'}).diagnose(connection)).toEqual({ok:false,reason:'timeout'});
+    expect(await failing({}).diagnose(connection)).toEqual({ok:false,reason:'unknown'});
+    await expect(failing({code:'EAUTH'}).connect(connection)).rejects.toMatchObject({reason:'auth'});
+  });
+});
+

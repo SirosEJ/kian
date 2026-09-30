@@ -1,6 +1,7 @@
 import { snapshotJiraFields } from '../connections/jira-mapping.js';
 import { randomUUID } from 'node:crypto';
 import type { Queryable, Task } from '@kian/db';
+import { isPool } from '../transaction.js';
 import { evaluateTrust } from '../trust/policy.js';
 
 const failure = (statusCode: number, message: string) => Object.assign(new Error(message), { statusCode });
@@ -9,8 +10,8 @@ export type StoredProposal = { connectionId: string | null; destination: string 
 export function createApprovalService(db: Queryable) {
   return {
     async decideTask(ownerId: string, taskId: string, version: number, decision: 'approve' | 'reject', optionalRule?: { connectionId:string; action:string; destinations:string[] }): Promise<Task> {
-      if ('connect' in db && typeof db.connect === 'function') {
-        const client = await (db as Queryable & {connect:()=>Promise<Queryable & {release:()=>void}>}).connect();
+      if (isPool(db)) {
+        const client = await db.connect();
         try { await client.query('BEGIN'); const result = await createApprovalService(client).decideTask(ownerId,taskId,version,decision,optionalRule); await client.query('COMMIT'); return result; }
         catch (error) { await client.query('ROLLBACK'); throw error; }
         finally { client.release(); }
@@ -42,8 +43,8 @@ export function createApprovalService(db: Queryable) {
       return task;
     },
     async editTask(ownerId: string, taskId: string, version: number, proposal: StoredProposal): Promise<Task> {
-      if ('connect' in db && typeof db.connect === 'function') {
-        const client = await (db as Queryable & {connect:()=>Promise<Queryable & {release:()=>void}>}).connect();
+      if (isPool(db)) {
+        const client = await db.connect();
         try { await client.query('BEGIN'); const result = await createApprovalService(client).editTask(ownerId,taskId,version,proposal); await client.query('COMMIT'); return result; }
         catch (error) { await client.query('ROLLBACK'); throw error; }
         finally { client.release(); }

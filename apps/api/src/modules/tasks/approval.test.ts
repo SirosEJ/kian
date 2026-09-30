@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
 import { readFile } from 'node:fs/promises';
 import { createApprovalService } from './approval.js';
@@ -46,3 +46,19 @@ describe('task decisions', () => {
     await db.close();
   });
 });
+
+describe('transactions on a connection pool', () => {
+  it('uses one checked-out client without reconnecting it, as pg clients reject a second connect()', async () => {
+    const { db } = await setup();
+    const release = vi.fn();
+    const client = { query: (sql: string, params?: unknown[]) => db.query(sql, params), connect: () => { throw new Error('Client has already been connected. You cannot reuse a client.'); }, release };
+    const pool = { query: (sql: string, params?: unknown[]) => db.query(sql, params), connect: async () => client };
+    const service = createApprovalService(pool as never);
+    expect((await service.decideTask('alice', 'a', 1, 'approve')).state).toBe('queued');
+    const edited = await service.editTask('alice', 'b', 1, { destination: 'y@example.com', connectionId: 'mail-1', fields: { to: ['y@example.com'] }, uncertainties: [] });
+    expect(edited.version).toBe(2);
+    expect(release).toHaveBeenCalledTimes(2);
+    await db.close();
+  });
+});
+
