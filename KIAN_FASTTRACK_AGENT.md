@@ -19,7 +19,7 @@ Authorised Sepenta Jira (Atlassian connector, site `sepenta.atlassian.net`), Git
 5. Implement the smallest maintainable change satisfying the acceptance criteria, test first where practical. Keep to the Kian global constraints: per-user data isolation, no provider write without approval or a matching trust rule, no secrets in logs, no automatic resend of uncertain email.
 6. Run locally: `pnpm install --frozen-lockfile && pnpm test && pnpm test:e2e && pnpm typecheck && pnpm build`.
 7. Commit with the Jira key (`SFT-N: ...`) and push the branch.
-8. Observe the `Test and Deploy Story Preview` workflow (`gh run watch`). It runs the full suite, then deploys Cloud Run service `kian-sft-N` (own database `kian_sft_N`) and checks `/health`.
+8. Observe the `Test and Deploy Story Preview` workflow (`gh run watch`). It runs the full suite, then deploys Cloud Run service `kian-sft-N` (own Neon database branch `kian-sft-N`) and checks `/health`.
 9. On failure, read the logs, diagnose, fix on the same branch, push, observe again. Never report success while a run is queued, running, failed, skipped or cancelled.
 10. When tests, deployment and health all pass, move Jira to `Awaiting Approval` if permitted and report:
 

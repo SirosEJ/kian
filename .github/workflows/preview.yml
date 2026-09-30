@@ -46,7 +46,6 @@ jobs:
           JIRA_KEY="$(printf '%s' "$GITHUB_REF_NAME" | grep -oE '^SFT-[0-9]+' | tr '[:upper:]' '[:lower:]')"
           test -n "$JIRA_KEY"
           echo "service=kian-${JIRA_KEY}" >> "$GITHUB_OUTPUT"
-          echo "database=kian_${JIRA_KEY//-/_}" >> "$GITHUB_OUTPUT"
 
       - uses: google-github-actions/auth@v3
         with:
@@ -55,12 +54,28 @@ jobs:
 
       - uses: google-github-actions/setup-gcloud@v3
 
-      - name: Create story database (idempotent)
+      - name: Create or reuse story database branch (Neon)
+        id: db
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+          NEON_DATABASE: ${{ vars.NEON_DATABASE }}
+          NEON_ROLE: ${{ vars.NEON_ROLE }}
         run: |
-          gcloud sql databases describe "${{ steps.preview.outputs.database }}" \
-            --instance "${{ vars.KIAN_SQL_INSTANCE }}" --project "${{ vars.GCP_PROJECT_ID }}" >/dev/null 2>&1 \
-          || gcloud sql databases create "${{ steps.preview.outputs.database }}" \
-            --instance "${{ vars.KIAN_SQL_INSTANCE }}" --project "${{ vars.GCP_PROJECT_ID }}"
+          API="https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}"
+          AUTH="Authorization: Bearer ${NEON_API_KEY}"
+          NAME="${{ steps.preview.outputs.service }}"
+          BRANCH_ID="$(curl -fsS -H "$AUTH" "$API/branches?search=${NAME}" | jq -r --arg n "$NAME" '.branches[] | select(.name==$n) | .id' | head -n1)"
+          if [ -z "$BRANCH_ID" ]; then
+            BRANCH_ID="$(curl -fsS -X POST -H "$AUTH" -H 'Content-Type: application/json' \
+              -d "{\"branch\":{\"name\":\"${NAME}\"},\"endpoints\":[{\"type\":\"read_write\"}]}" \
+              "$API/branches" | jq -r '.branch.id')"
+          fi
+          test -n "$BRANCH_ID" && test "$BRANCH_ID" != null
+          URI="$(curl -fsS -H "$AUTH" "$API/connection_uri?branch_id=${BRANCH_ID}&database_name=${NEON_DATABASE}&role_name=${NEON_ROLE}&pooled=false" | jq -r '.uri')"
+          test -n "$URI" && test "$URI" != null
+          echo "::add-mask::$URI"
+          echo "url=$URI" >> "$GITHUB_OUTPUT"
 
       - name: Deploy current branch to Cloud Run preview
         run: |
@@ -71,11 +86,10 @@ jobs:
             --platform managed \
             --no-invoker-iam-check \
             --no-cpu-throttling \
-            --add-cloudsql-instances "${{ vars.GCP_PROJECT_ID }}:europe-west1:${{ vars.KIAN_SQL_INSTANCE }}" \
             --command "sh" --args "scripts/preview-entrypoint.sh" \
             --set-build-env-vars="VITE_FIREBASE_API_KEY=${{ vars.KIAN_FIREBASE_API_KEY }},VITE_FIREBASE_AUTH_DOMAIN=${{ vars.KIAN_FIREBASE_AUTH_DOMAIN }},VITE_FIREBASE_PROJECT_ID=${{ vars.KIAN_FIREBASE_PROJECT_ID }}" \
-            --set-env-vars="GOOGLE_CLOUD_PROJECT=${{ vars.KIAN_FIREBASE_PROJECT_ID }},INSTANCE_CONNECTION_NAME=${{ vars.GCP_PROJECT_ID }}:europe-west1:${{ vars.KIAN_SQL_INSTANCE }},DB_USER=kian,DB_NAME=${{ steps.preview.outputs.database }}" \
-            --set-secrets="DB_PASSWORD=kian-staging-db-password:latest,OPENAI_API_KEY=estate-openai-api-key:latest,KIAN_ENCRYPTION_KEY=kian-staging-encryption-key:latest" \
+            --set-env-vars="GOOGLE_CLOUD_PROJECT=${{ vars.KIAN_FIREBASE_PROJECT_ID }},DATABASE_URL=${{ steps.db.outputs.url }}" \
+            --set-secrets="OPENAI_API_KEY=estate-openai-api-key:latest,KIAN_ENCRYPTION_KEY=kian-staging-encryption-key:latest" \
             --memory=1Gi \
             --timeout=900 \
             --quiet
