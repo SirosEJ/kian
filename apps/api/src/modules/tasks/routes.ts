@@ -28,10 +28,12 @@ export function registerTaskRoutes(app: FastifyInstance, deps: TaskRoutes) {
 
   app.post<{Body:{audioBase64?:string;mimeType?:string}}>('/transcriptions', { bodyLimit: 16 * 1024 * 1024 }, async (request, reply) => {
     await deps.authenticate(request);
-    const { audioBase64, mimeType } = request.body || {};
-    if (!audioBase64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(audioBase64) || !['audio/webm','audio/mp4'].includes(mimeType || '')) return reply.code(400).send({ error: 'Supported audio recording required' });
+    const { audioBase64 } = request.body || {};
+    // Browsers label recordings like "audio/webm;codecs=opus"; only the base type matters.
+    const mimeType = (request.body?.mimeType || '').split(';')[0].trim().toLowerCase();
+    if (!audioBase64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(audioBase64) || !['audio/webm','audio/mp4'].includes(mimeType)) return reply.code(400).send({ error: 'Supported audio recording required' });
     if (audioBase64.length > Math.ceil(10 * 1024 * 1024 * 4 / 3)) return reply.code(413).send({ error: 'Recording exceeds 10 MB' });
-    try { return { text: await (deps.transcribe || defaultTranscribe)(Buffer.from(audioBase64, 'base64'), mimeType!) }; }
+    try { return { text: await (deps.transcribe || defaultTranscribe)(Buffer.from(audioBase64, 'base64'), mimeType) }; }
     catch { return reply.code(502).send({ error: 'Transcription failed. Please retry or type the instruction.' }); }
   });
 }

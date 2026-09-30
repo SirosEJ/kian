@@ -14,7 +14,7 @@ async function encode(blob: Blob): Promise<string> {
 
 async function transcribe(blob: Blob): Promise<string> {
   if (blob.size > 10 * 1024 * 1024) throw Object.assign(new Error('Recording exceeds 10 MB'), { tooLarge: true });
-  const result = await apiRequest('/transcriptions', 'POST', { audioBase64: await encode(blob), mimeType: blob.type });
+  const result = await apiRequest('/transcriptions', 'POST', { audioBase64: await encode(blob), mimeType: blob.type.split(';')[0] });
   return result.text;
 }
 

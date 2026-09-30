@@ -27,4 +27,17 @@ describe('task intake routes', () => {
     expect(tooLarge.statusCode).toBe(413);
     await app.close();
   });
+
+  it('accepts browser recordings labelled with codec parameters and passes the base type on', async () => {
+    const seen: string[] = [];
+    const app = Fastify({ bodyLimit: 16 * 1024 * 1024 });
+    registerTaskRoutes(app, { authenticate: auth, plan: async () => [], save: async () => {}, transcribe: async (_audio, mimeType) => { seen.push(mimeType); return 'ok'; } });
+    const audioBase64 = Buffer.from('audio').toString('base64');
+    for (const mimeType of ['audio/webm;codecs=opus', 'Audio/WebM; codecs=opus', 'audio/mp4;codecs=mp4a.40.2']) {
+      expect((await app.inject({ method: 'POST', url: '/transcriptions', payload: { audioBase64, mimeType } })).json()).toEqual({ text: 'ok' });
+    }
+    expect(seen).toEqual(['audio/webm', 'audio/webm', 'audio/mp4']);
+    expect((await app.inject({ method: 'POST', url: '/transcriptions', payload: { audioBase64, mimeType: 'audio/ogg;codecs=opus' } })).statusCode).toBe(400);
+    await app.close();
+  });
 });
