@@ -21,7 +21,7 @@ Not undone: objects already created in Google Calendar, Jira or sent email. Prov
 |---|---|
 | Instructions, proposals, trust rules, execution receipts, activity | Until the user deletes the account |
 | Connection secrets | Until disconnect (cleared immediately) or account deletion |
-| Raw audio | Not stored by Kian; sent to the transcription provider, whose retention settings must be confirmed |
+| Raw audio | Not stored by Kian. With live dictation the browser's own speech-recognition service hears the audio (in Chrome, audio is sent to Google; Safari uses Apple); where that is unavailable Kian sends the recording to its transcription provider. Confirm both retention settings and disclose them in the privacy policy |
 | Operational logs | No request bodies or decrypted secrets; retained per hosting log policy (proposed 30 days) |
 | Database backups | Deleted data expires from backups within the backup retention window (proposed 30 days, to be confirmed) |
 

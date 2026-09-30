@@ -1,4 +1,4 @@
-import { useReducer, useRef, type KeyboardEvent } from 'react';
+import { useLayoutEffect, useReducer, useRef, type KeyboardEvent } from 'react';
 import { MicButton } from '../recording/MicButton.js';
 import { canRecord, canSend, initialPrompt, promptReducer } from './promptState.js';
 
@@ -13,6 +13,15 @@ type Props = { onSubmit: (text: string) => Promise<void>; transcribe: (blob: Blo
 export function PromptBox({ onSubmit, transcribe }: Props) {
   const [state, dispatch] = useReducer(promptReducer, initialPrompt);
   const inFlight = useRef(false);
+  const field = useRef<HTMLTextAreaElement>(null);
+  // Grow with the text (up to the CSS max height) so nothing is hidden behind the icons; follow live dictation.
+  useLayoutEffect(() => {
+    const el = field.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${el.scrollHeight}px`;
+    el.scrollTop = el.scrollHeight;
+  }, [state.text]);
 
   async function send() {
     if (inFlight.current || !canSend(state)) return;
@@ -36,9 +45,9 @@ export function PromptBox({ onSubmit, transcribe }: Props) {
   const busy = state.status === 'sending';
   return <div className="prompt">
     <div className="prompt-box">
-      <textarea aria-label="Type an instruction" rows={2} value={state.text} disabled={busy} placeholder="Ask Kian to create a Jira story, book a meeting or write an email" onChange={event => dispatch({ type: 'edit', text: event.target.value })} onKeyDown={onKeyDown} />
+      <textarea ref={field} aria-label="Type an instruction" rows={2} value={state.text} disabled={busy} readOnly={state.status === 'recording'} placeholder="Ask Kian to create a Jira story, book a meeting or write an email" onChange={event => dispatch({ type: 'edit', text: event.target.value })} onKeyDown={onKeyDown} />
       <div className="prompt-actions">
-        <MicButton recording={state.status === 'recording'} disabled={!canRecord(state)} onStart={() => dispatch({ type: 'record-start' })} onRecorded={blob => void recorded(blob)} onError={message => dispatch({ type: 'voice-failed', message })} />
+        <MicButton recording={state.status === 'recording'} disabled={!canRecord(state)} onStart={() => dispatch({ type: 'record-start' })} onLive={text => dispatch({ type: 'live', text })} onLiveEnd={() => dispatch({ type: 'live-end' })} onRecorded={blob => void recorded(blob)} onError={message => dispatch({ type: 'voice-failed', message })} />
         <button type="button" className="icon-button send" disabled={!canSend(state)} aria-label="Send instruction" title="Send (Enter)" onClick={() => void send()}>{busy ? <span className="spinner" aria-hidden="true" /> : <SendIcon />}</button>
       </div>
     </div>

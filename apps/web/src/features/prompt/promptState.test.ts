@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canSend, initialPrompt, joinTranscript, promptReducer, type PromptAction, type PromptState } from './promptState.js';
+import { canSend, collectTranscript, initialPrompt, joinTranscript, promptReducer, type PromptAction, type PromptState } from './promptState.js';
 
 const run = (actions: PromptAction[], from: PromptState = initialPrompt) => actions.reduce(promptReducer, from);
 
@@ -47,12 +47,42 @@ describe('prompt dictation and send', () => {
     const sending = run([{ type: 'edit', text: 'Do the thing' }, { type: 'send-start' }]);
     expect(run([{ type: 'send-ok' }], sending)).toEqual(initialPrompt);
     const failed = run([{ type: 'send-failed', message: 'Could not prepare tasks.' }], sending);
-    expect(failed).toEqual({ text: 'Do the thing', status: 'idle', error: 'Could not prepare tasks.' });
+    expect(failed).toMatchObject({ text: 'Do the thing', status: 'idle', error: 'Could not prepare tasks.' });
   });
 
   it('keeps typed text and shows a retryable message when dictation fails', () => {
     const state = run([{ type: 'edit', text: 'Email Alex' }, { type: 'record-start' }, { type: 'record-stop' }, { type: 'voice-failed', message: 'Transcription failed.' }]);
-    expect(state).toEqual({ text: 'Email Alex', status: 'idle', error: 'Transcription failed.' });
+    expect(state).toMatchObject({ text: 'Email Alex', status: 'idle', error: 'Transcription failed.' });
     expect(run([{ type: 'record-start' }], state)).toMatchObject({ status: 'recording', error: '' });
   });
 });
+
+describe('live dictation', () => {
+  it('shows speech in the box as it is recognised, after whatever was already typed', () => {
+    let state = run([{ type: 'edit', text: 'Email Alex' }, { type: 'record-start' }]);
+    state = run([{ type: 'live', text: 'about' }], state);
+    expect(state.text).toBe('Email Alex about');
+    state = run([{ type: 'live', text: 'about the agenda for Friday' }], state);
+    expect(state.text).toBe('Email Alex about the agenda for Friday');
+    state = run([{ type: 'live-end' }], state);
+    expect(state).toMatchObject({ status: 'idle', text: 'Email Alex about the agenda for Friday' });
+  });
+
+  it('ignores late live results once recording has ended, and cannot send while listening', () => {
+    const recording = run([{ type: 'edit', text: 'x' }, { type: 'record-start' }, { type: 'live', text: 'y' }]);
+    expect(run([{ type: 'send-start' }], recording).status).toBe('recording');
+    const ended = run([{ type: 'live-end' }], recording);
+    expect(run([{ type: 'live', text: 'late' }], ended).text).toBe('x y');
+  });
+
+  it('starts the next dictation from the edited text', () => {
+    let state = run([{ type: 'record-start' }, { type: 'live', text: 'first' }, { type: 'live-end' }, { type: 'edit', text: 'First, edited' }, { type: 'record-start' }, { type: 'live', text: 'second' }]);
+    expect(state.text).toBe('First, edited second');
+  });
+
+  it('builds the running transcript from final and interim results', () => {
+    expect(collectTranscript([{ 0: { transcript: 'hello ' } }, { 0: { transcript: ' wor' } }])).toBe('hello wor');
+    expect(collectTranscript([])).toBe('');
+  });
+});
+
