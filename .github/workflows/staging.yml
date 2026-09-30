@@ -4,7 +4,6 @@ on:
   push:
     branches:
       - main
-      - SFT-233-staging-foundation # temporary: verify before merge
   workflow_dispatch:
 
 permissions:
