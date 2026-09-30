@@ -9,14 +9,15 @@ function unauthorized(): Error & { statusCode: number } {
 }
 
 export function createRequireUser(verify: VerifyToken) {
-  return async (request: { headers: { authorization?: string } }): Promise<UserId> => {
+  return async (request: { headers: { authorization?: string }; log?: { warn: (details: object, message: string) => void } }): Promise<UserId> => {
     const match = /^Bearer (\S+)$/.exec(request.headers.authorization || '');
     if (!match) throw unauthorized();
     try {
       const decoded = await verify(match[1]);
       if (!decoded.uid) throw unauthorized();
       return decoded.uid;
-    } catch {
+    } catch (error) {
+      request.log?.warn({ code: (error as { code?: string }).code }, 'Token verification failed');
       throw unauthorized();
     }
   };

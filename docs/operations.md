@@ -12,6 +12,12 @@ For a local compiled run, set `WEB_DIST_PATH` to the absolute `apps/web/dist` di
 
 No staging cloud resources or paid production services have been created by this implementation. Container build/start and Cloud Run deployment must be verified in the configured environment; Docker is not available in the development workspace used for local verification.
 
+## Staging and story previews
+
+`kian-staging` is a stable Cloud Run service deployed from `main` by `.github/workflows/staging.yml` (own Neon branch `kian-staging`). Its URL is `https://kian-staging-1088794188480.europe-west1.run.app/`. Register exactly this URL, with the trailing slash, as the OAuth redirect for the Google and Atlassian apps. Provider connections are tested here only. Story previews (`kian-sft-N`, `preview.yml`) have changing URLs and are for everything except provider OAuth.
+
+To enable a provider on staging, set the GitHub repository variable `KIAN_GOOGLE_CLIENT_ID` / `KIAN_JIRA_CLIENT_ID`, create the Secret Manager secret `kian-google-client-secret` / `kian-jira-client-secret`, and grant the Cloud Run runtime service account (`<project number>-compute@developer.gserviceaccount.com`) `roles/secretmanager.secretAccessor` on that secret. The workflow skips a provider, with a warning, until both exist. Secret values are created by the owner and never committed.
+
 ## Secrets and account configuration
 
 Supply `DATABASE_URL`, Firebase application default credentials and project ID, `OPENAI_API_KEY`, Google and Jira OAuth client values and one persistent base64 32-byte `KIAN_ENCRYPTION_KEY`. Store them in the deployment secret manager. Never commit customer mailbox passwords or OAuth tokens. Losing or rotating the encryption key without re-encryption makes saved connections unusable; ask users to reconnect.

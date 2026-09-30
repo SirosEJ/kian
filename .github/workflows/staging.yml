@@ -1,0 +1,134 @@
+name: Deploy Staging
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: kian-staging
+  cancel-in-progress: false
+
+env:
+  SERVICE: kian-staging
+  REGION: europe-west1
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter './packages/**' build
+      - run: pnpm test
+      - run: pnpm test:e2e
+      - run: pnpm typecheck
+      - run: pnpm build
+
+  deploy-staging:
+    needs: test
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Create or reuse staging database branch (Neon)
+        id: db
+        env:
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+          NEON_DATABASE: ${{ vars.NEON_DATABASE }}
+          NEON_ROLE: ${{ vars.NEON_ROLE }}
+        run: |
+          API="https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}"
+          AUTH="Authorization: Bearer ${NEON_API_KEY}"
+          NAME="${SERVICE}"
+          BRANCH_ID="$(curl -fsS -H "$AUTH" "$API/branches?search=${NAME}" | jq -r --arg n "$NAME" '.branches[] | select(.name==$n) | .id' | head -n1)"
+          if [ -z "$BRANCH_ID" ]; then
+            BRANCH_ID="$(curl -fsS -X POST -H "$AUTH" -H 'Content-Type: application/json' \
+              -d "{\"branch\":{\"name\":\"${NAME}\"},\"endpoints\":[{\"type\":\"read_write\"}]}" \
+              "$API/branches" | jq -r '.branch.id')"
+          fi
+          test -n "$BRANCH_ID" && test "$BRANCH_ID" != null
+          URI="$(curl -fsS -H "$AUTH" "$API/connection_uri?branch_id=${BRANCH_ID}&database_name=${NEON_DATABASE}&role_name=${NEON_ROLE}&pooled=false" | jq -r '.uri')"
+          test -n "$URI" && test "$URI" != null
+          echo "::add-mask::$URI"
+          echo "url=$URI" >> "$GITHUB_OUTPUT"
+
+      - name: Write public Firebase web config for the image build
+        run: |
+          {
+            echo "VITE_FIREBASE_API_KEY=${{ vars.KIAN_FIREBASE_API_KEY }}"
+            echo "VITE_FIREBASE_AUTH_DOMAIN=${{ vars.KIAN_FIREBASE_AUTH_DOMAIN }}"
+            echo "VITE_FIREBASE_PROJECT_ID=${{ vars.KIAN_FIREBASE_PROJECT_ID }}"
+          } > firebase-public.env
+
+      - name: Resolve provider configuration
+        id: providers
+        env:
+          GOOGLE_CLIENT_ID: ${{ vars.KIAN_GOOGLE_CLIENT_ID }}
+          JIRA_CLIENT_ID: ${{ vars.KIAN_JIRA_CLIENT_ID }}
+        run: |
+          # Stable, deterministic Cloud Run URL: register https://<service>-<project number>.<region>.run.app/ as the OAuth redirect.
+          PROJECT_NUMBER="$(gcloud projects describe "${{ vars.GCP_PROJECT_ID }}" --format='value(projectNumber)')"
+          BASE="https://${SERVICE}-${PROJECT_NUMBER}.${REGION}.run.app/"
+          ENVS="GOOGLE_CLOUD_PROJECT=${{ vars.KIAN_FIREBASE_PROJECT_ID }}"
+          SECRETS="OPENAI_API_KEY=estate-openai-api-key:latest,KIAN_ENCRYPTION_KEY=kian-staging-encryption-key:latest"
+          have_secret() { gcloud secrets describe "$1" --project "${{ vars.GCP_PROJECT_ID }}" >/dev/null 2>&1; }
+          if [ -n "$GOOGLE_CLIENT_ID" ] && have_secret kian-google-client-secret; then
+            ENVS="$ENVS,GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID,GOOGLE_REDIRECT_URI=$BASE"
+            SECRETS="$SECRETS,GOOGLE_CLIENT_SECRET=kian-google-client-secret:latest"
+          else
+            echo "::warning::Google Calendar not configured (set KIAN_GOOGLE_CLIENT_ID and create secret kian-google-client-secret)"
+          fi
+          if [ -n "$JIRA_CLIENT_ID" ] && have_secret kian-jira-client-secret; then
+            ENVS="$ENVS,JIRA_CLIENT_ID=$JIRA_CLIENT_ID,JIRA_REDIRECT_URI=$BASE"
+            SECRETS="$SECRETS,JIRA_CLIENT_SECRET=kian-jira-client-secret:latest"
+          else
+            echo "::warning::Jira Cloud not configured (set KIAN_JIRA_CLIENT_ID and create secret kian-jira-client-secret)"
+          fi
+          echo "envs=$ENVS" >> "$GITHUB_OUTPUT"
+          echo "secrets=$SECRETS" >> "$GITHUB_OUTPUT"
+          echo "Staging URL (OAuth redirect): $BASE" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Deploy to Cloud Run staging
+        run: |
+          gcloud run deploy "${SERVICE}" \
+            --project "${{ vars.GCP_PROJECT_ID }}" \
+            --source . \
+            --region "${REGION}" \
+            --platform managed \
+            --no-invoker-iam-check \
+            --no-cpu-throttling \
+            --command "sh" --args "scripts/preview-entrypoint.sh" \
+            --set-env-vars="${{ steps.providers.outputs.envs }},DATABASE_URL=${{ steps.db.outputs.url }}" \
+            --set-secrets="${{ steps.providers.outputs.secrets }}" \
+            --memory=1Gi \
+            --timeout=900 \
+            --quiet
+
+      - name: Verify staging health
+        run: |
+          URL="$(gcloud run services describe "${SERVICE}" --project "${{ vars.GCP_PROJECT_ID }}" --region "${REGION}" --format='value(status.url)')"
+          test -n "$URL"
+          curl --fail --show-error --silent --retry 10 --retry-delay 3 --retry-all-errors "${URL}/health" | tee /tmp/health.json
+          grep -Eq '"status": ?"ok"' /tmp/health.json
