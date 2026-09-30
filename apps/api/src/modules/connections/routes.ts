@@ -33,6 +33,7 @@ export async function getGoogleAccessToken(db:Queryable,owner:string,id:string,c
 export function registerConnectionRoutes(app:FastifyInstance,db:Queryable,authenticate:(request:{headers:{authorization?:string}})=>Promise<string>,config:GoogleConfig) {
   const request=config.request || fetch,google=new GoogleCalendarConnector(request);
   app.post('/connections/google/start',async req=>{
+    if(!config.clientId || !config.clientSecret || !config.redirectUri) throw error(503,'Google Calendar is not configured');
     const owner=await authenticate(req),state=randomBytes(32).toString('base64url');
     await db.query('INSERT INTO users(id) VALUES ($1) ON CONFLICT (id) DO NOTHING',[owner]);
     await db.query("INSERT INTO oauth_states(state,owner_id,provider,expires_at) VALUES ($1,$2,'google',now()+interval '10 minutes')",[state,owner]);
@@ -41,6 +42,7 @@ export function registerConnectionRoutes(app:FastifyInstance,db:Queryable,authen
     return {url:url.toString()};
   });
   app.post<{Body:{state?:string;code?:string}}>('/connections/google/complete',async (req,reply)=>{
+    if(!config.clientId || !config.clientSecret || !config.redirectUri) throw error(503,'Google Calendar is not configured');
     const owner=await authenticate(req),{state,code}=req.body || {};
     if(!state || !code || state.length>128 || code.length>4096) return reply.code(400).send({error:'Invalid authorization response'});
     const record=(await db.query('SELECT owner_id,expires_at,used_at FROM oauth_states WHERE state=$1 AND provider=$2',[state,'google'])).rows[0];

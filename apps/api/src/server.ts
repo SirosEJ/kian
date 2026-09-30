@@ -7,6 +7,7 @@ import { registerTaskRoutes, type TaskRoutes } from './modules/tasks/routes.js';
 import { registerDecisionRoutes } from './modules/tasks/activity.js';
 import { evaluateTrust, type TrustRule } from './modules/trust/policy.js';
 import { registerConnectionRoutes } from './modules/connections/routes.js';
+import { registerJiraConnectionRoutes } from './modules/connections/jira-routes.js';
 
 type TaskReader = { getTask(ownerId: string, taskId: string): Promise<Task | null> };
 type ServerOptions = { verifyToken?: VerifyToken; repository?: TaskReader; taskRoutes?: TaskRoutes };
@@ -57,7 +58,8 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     },
   });
   if (pool) registerDecisionRoutes(app, pool, authenticate);
-  if (pool && process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_REDIRECT_URI && process.env.KIAN_ENCRYPTION_KEY) registerConnectionRoutes(app,pool,authenticate,{clientId:process.env.GOOGLE_CLIENT_ID,clientSecret:process.env.GOOGLE_CLIENT_SECRET,redirectUri:process.env.GOOGLE_REDIRECT_URI,encryptionKey:Buffer.from(process.env.KIAN_ENCRYPTION_KEY,'base64')});
+  if (pool && process.env.KIAN_ENCRYPTION_KEY) registerConnectionRoutes(app,pool,authenticate,{clientId:process.env.GOOGLE_CLIENT_ID || '',clientSecret:process.env.GOOGLE_CLIENT_SECRET || '',redirectUri:process.env.GOOGLE_REDIRECT_URI || '',encryptionKey:Buffer.from(process.env.KIAN_ENCRYPTION_KEY,'base64')});
+  if (pool && process.env.JIRA_CLIENT_ID && process.env.JIRA_CLIENT_SECRET && process.env.JIRA_REDIRECT_URI && process.env.KIAN_ENCRYPTION_KEY) registerJiraConnectionRoutes(app,pool,authenticate,{clientId:process.env.JIRA_CLIENT_ID,clientSecret:process.env.JIRA_CLIENT_SECRET,redirectUri:process.env.JIRA_REDIRECT_URI,encryptionKey:Buffer.from(process.env.KIAN_ENCRYPTION_KEY,'base64')});
   app.addHook('onClose', async () => { if (pool) await pool.end(); });
   return app;
 }
