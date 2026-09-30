@@ -8,6 +8,17 @@ type Message={from:string;to:string[];subject:string;text:string;messageId:strin
 export type MailTransport={verify:()=>Promise<unknown>;sendMail:(message:Message)=>Promise<{accepted?:unknown[];rejected?:unknown[];messageId?:string}>;close:()=>void};
 type Factory=(connection:IonosConnection)=>MailTransport;
 const address=/^[^\s<>@,;\r\n]+@[^\s<>@,;\r\n]+\.[^\s<>@,;\r\n]+$/;
+export type MailFailureReason='auth'|'host'|'tls'|'timeout'|'unknown';
+export class MailConnectionError extends Error {constructor(readonly reason:MailFailureReason){super(`Mailbox connection failed: ${reason}`);}}
+function classify(raw:unknown):MailFailureReason {
+  const error=raw as {code?:string;message?:string;responseCode?:number};
+  const text=`${error.code||''} ${error.message||''}`;
+  if(error.code==='EAUTH' || error.responseCode===535) return 'auth';
+  if(/CERT|TLS|SSL|ALTNAME/i.test(text)) return 'tls';
+  if(/ENOTFOUND|ECONNREFUSED|EDNS|EAI_AGAIN/.test(text)) return 'host';
+  if(/TIMEDOUT|ETIMEOUT|ESOCKET|ECONNRESET/.test(text)) return 'timeout';
+  return 'unknown';
+}
 const hosts=['smtp.ionos.co.uk','smtp.ionos.com','smtp.ionos.de'];
 const transport:Factory=connection=>nodemailer.createTransport({host:connection.host,port:465,secure:true,auth:{user:connection.user,pass:connection.password},tls:{minVersion:'TLSv1.2'},connectionTimeout:15000,greetingTimeout:15000,socketTimeout:30000,logger:false,debug:false});
 
@@ -16,13 +27,15 @@ export class IonosMailConnector implements Connector<IonosConnection,EmailComman
   async connect(input:unknown):Promise<IonosConnection> {
     const value=input as IonosConnection;
     if(!value || !hosts.includes(value.host) || !address.test(value.user) || typeof value.password!=='string' || !value.password) throw new Error('Valid IONOS server, mailbox and password required');
-    if(!await this.test(value)) throw new Error('Mailbox connection failed');
+    const result=await this.diagnose(value);
+    if(!result.ok) throw new MailConnectionError(result.reason);
     return value;
   }
-  async test(connection:IonosConnection) {
+  async diagnose(connection:IonosConnection):Promise<{ok:true}|{ok:false;reason:MailFailureReason}> {
     const mail=this.makeTransport(connection);
-    try {await mail.verify();return true;} catch {return false;} finally {mail.close();}
+    try {await mail.verify();return {ok:true};} catch(raw) {return {ok:false,reason:classify(raw)};} finally {mail.close();}
   }
+  async test(connection:IonosConnection) {return (await this.diagnose(connection)).ok;}
   async listDestinations(_connection:IonosConnection) {return [];}
   validate(command:EmailCommand) {
     if(!Array.isArray(command.to) || !command.to.length || command.to.length>20 || command.to.some(to=>typeof to!=='string' || !address.test(to))) throw new Error('Every recipient needs an exact email address');
