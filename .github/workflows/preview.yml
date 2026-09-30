@@ -77,6 +77,16 @@ jobs:
           echo "::add-mask::$URI"
           echo "url=$URI" >> "$GITHUB_OUTPUT"
 
+      - name: Write public Firebase web config for the image build
+        run: |
+          # Public client values. Cloud Run --set-build-env-vars does not reach Dockerfile builds,
+          # so the Dockerfile sources this file before `pnpm build`.
+          {
+            echo "VITE_FIREBASE_API_KEY=${{ vars.KIAN_FIREBASE_API_KEY }}"
+            echo "VITE_FIREBASE_AUTH_DOMAIN=${{ vars.KIAN_FIREBASE_AUTH_DOMAIN }}"
+            echo "VITE_FIREBASE_PROJECT_ID=${{ vars.KIAN_FIREBASE_PROJECT_ID }}"
+          } > firebase-public.env
+
       - name: Deploy current branch to Cloud Run preview
         run: |
           gcloud run deploy "${{ steps.preview.outputs.service }}" \
@@ -87,7 +97,6 @@ jobs:
             --no-invoker-iam-check \
             --no-cpu-throttling \
             --command "sh" --args "scripts/preview-entrypoint.sh" \
-            --set-build-env-vars="VITE_FIREBASE_API_KEY=${{ vars.KIAN_FIREBASE_API_KEY }},VITE_FIREBASE_AUTH_DOMAIN=${{ vars.KIAN_FIREBASE_AUTH_DOMAIN }},VITE_FIREBASE_PROJECT_ID=${{ vars.KIAN_FIREBASE_PROJECT_ID }}" \
             --set-env-vars="GOOGLE_CLOUD_PROJECT=${{ vars.KIAN_FIREBASE_PROJECT_ID }},DATABASE_URL=${{ steps.db.outputs.url }}" \
             --set-secrets="OPENAI_API_KEY=estate-openai-api-key:latest,KIAN_ENCRYPTION_KEY=kian-staging-encryption-key:latest" \
             --memory=1Gi \

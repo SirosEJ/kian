@@ -18,7 +18,8 @@ ARG VITE_FIREBASE_API_KEY
 ARG VITE_FIREBASE_AUTH_DOMAIN
 ARG VITE_FIREBASE_PROJECT_ID
 ENV VITE_FIREBASE_API_KEY=$VITE_FIREBASE_API_KEY VITE_FIREBASE_AUTH_DOMAIN=$VITE_FIREBASE_AUTH_DOMAIN VITE_FIREBASE_PROJECT_ID=$VITE_FIREBASE_PROJECT_ID
-RUN pnpm build
+COPY firebase-public.en[v] ./
+RUN if [ -f firebase-public.env ]; then set -a; . ./firebase-public.env; set +a; fi; pnpm build
 
 FROM node:24-alpine
 RUN corepack enable
