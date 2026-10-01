@@ -11,6 +11,7 @@ describe('owner-scoped repository', () => {
     const db = new PGlite(); databases.push(db);
     await db.exec(readFileSync(new URL('../migrations/001_core.sql', import.meta.url), 'utf8'));
     await db.exec(readFileSync(new URL('../migrations/002_conversations.sql', import.meta.url), 'utf8'));
+    await db.exec(readFileSync(new URL('../migrations/003_message_tasks.sql', import.meta.url), 'utf8'));
     await db.query("INSERT INTO users (id) VALUES ('alice'), ('bob')");
     await db.query("INSERT INTO connections (id, owner_id, provider, display_name) VALUES ('ca','alice','jira','A'),('cb','bob','jira','B')");
     await db.query("INSERT INTO tasks (id, owner_id, action, state, parameters) VALUES ('ta','alice','jira.create','proposed','{}'),('tb','bob','jira.create','proposed','{}')");

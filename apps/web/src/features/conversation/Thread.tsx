@@ -1,13 +1,20 @@
+import type { ReactNode } from 'react';
 import { AssistantMessage } from '../../components/index.js';
 
-export type ChatMessage = { id: string; role: 'user' | 'assistant'; content: string };
+export type ChatMessage<T = unknown> = { id: string; role: 'user' | 'assistant'; content: string; tasks?: T[] };
 
-/** The conversation so far: what the user said and Kian's replies, oldest first, so the newest sits next to the prompt. */
-export function Thread({ messages }: { messages: ChatMessage[] }) {
-  if (messages.length === 0) return null;
+/** Kian is working on the answer. */
+export function Thinking() {
+  return <section className="assistant assistant-thinking" role="status" aria-label="Kian is thinking"><p className="assistant-name">Kian</p><span className="dots" aria-hidden="true"><i /><i /><i /></span></section>;
+}
+
+/** The conversation, oldest first: what the user said, Kian's replies, and each prepared task under the reply that produced it. */
+export function Thread<T extends { id: string }>({ messages, renderTask, thinking }: { messages: ChatMessage<T>[]; renderTask?: (task: T, message: ChatMessage<T>) => ReactNode; thinking?: boolean }) {
+  if (messages.length === 0 && !thinking) return null;
   return <div className="thread" role="log" aria-label="Conversation with Kian">
     {messages.map(message => message.role === 'assistant'
-      ? <AssistantMessage key={message.id}>{message.content}</AssistantMessage>
+      ? <div key={message.id} className="thread-turn"><AssistantMessage>{message.content}</AssistantMessage>{renderTask && message.tasks?.map(task => <div key={task.id} className="thread-task">{renderTask(task, message)}</div>)}</div>
       : <section key={message.id} className="user-message" aria-label="Your message"><p className="user-text">{message.content}</p></section>)}
+    {thinking && <Thinking />}
   </div>;
 }

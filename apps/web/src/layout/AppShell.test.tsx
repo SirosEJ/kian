@@ -33,4 +33,12 @@ describe('app shell', () => {
     expect(open).toMatch(/<a[^>]*href="\/account"[^>]*role="menuitem"[^>]*>Account<\/a>/);
     expect(open).toMatch(/<button[^>]*role="menuitem"[^>]*>Sign out<\/button>/);
   });
+
+  it('gives Home a full-height chat frame and every other page the normal scrolling page', () => {
+    const home = renderToString(<AppShell email="a@b.co" page="/" onSignOut={() => {}}><p>x</p></AppShell>);
+    const other = renderToString(<AppShell email="a@b.co" page="/settings" onSignOut={() => {}}><p>x</p></AppShell>);
+    expect(home).toContain('class="shell shell-chat"');
+    expect(other).toContain('class="shell"');
+    expect(other).not.toContain('shell-chat');
+  });
 });

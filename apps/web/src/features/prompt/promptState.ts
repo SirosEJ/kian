@@ -1,5 +1,5 @@
 export type PromptStatus = 'idle' | 'recording' | 'transcribing' | 'sending';
-export type PromptState = { text: string; status: PromptStatus; error: string; base: string };
+export type PromptState = { text: string; status: PromptStatus; error: string; base: string; draft: string };
 export type PromptAction =
   | { type: 'edit'; text: string }
   | { type: 'record-start' }
@@ -12,7 +12,7 @@ export type PromptAction =
   | { type: 'send-ok' }
   | { type: 'send-failed'; message: string };
 
-export const initialPrompt: PromptState = { text: '', status: 'idle', error: '', base: '' };
+export const initialPrompt: PromptState = { text: '', status: 'idle', error: '', base: '', draft: '' };
 
 /** Append dictated speech to whatever the user has already typed, separated by one space. */
 export function joinTranscript(current: string, transcript: string): string {
@@ -46,8 +46,9 @@ export function promptReducer(state: PromptState, action: PromptAction): PromptS
     case 'live-end': return state.status === 'recording' ? { ...state, status: 'idle' } : state;
     case 'transcribed': return { ...state, status: state.status === 'transcribing' ? 'idle' : state.status, text: joinTranscript(state.text, action.text) };
     case 'voice-failed': return { ...state, status: state.status === 'sending' ? 'sending' : 'idle', error: action.message };
-    case 'send-start': return canSend(state) ? { ...state, status: 'sending', error: '' } : state;
-    case 'send-ok': return state.status === 'sending' ? { ...initialPrompt } : state;
-    case 'send-failed': return state.status === 'sending' ? { ...state, status: 'idle', error: action.message } : state;
+    // The box empties as soon as the message is sent, like a chat app; the text is kept aside in case sending fails.
+    case 'send-start': return canSend(state) ? { ...state, status: 'sending', error: '', draft: state.text, text: '' } : state;
+    case 'send-ok': return state.status === 'sending' ? { ...initialPrompt, text: state.text } : state;
+    case 'send-failed': return state.status === 'sending' ? { ...state, status: 'idle', error: action.message, text: joinTranscript(state.draft, state.text), draft: '' } : state;
   }
 }

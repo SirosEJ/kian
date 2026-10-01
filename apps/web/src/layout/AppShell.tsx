@@ -8,7 +8,7 @@ const navigation: { to: Page; label: string }[] = [{ to: '/', label: 'Home' }, {
 
 /** The signed-in frame: logo, main navigation and the profile menu on top, the page below. */
 export function AppShell({ email, page, onSignOut, children }: { email: string | null; page: Page | null; onSignOut: () => void; children: ReactNode }) {
-  return <>
+  return <div className={page === '/' ? 'shell shell-chat' : 'shell'}>
     <header className="topbar">
       <div className="topbar-inner">
         <Link to="/" className="brand" aria-label="Kian home"><Logo width={200} /></Link>
@@ -19,5 +19,5 @@ export function AppShell({ email, page, onSignOut, children }: { email: string |
       </div>
     </header>
     <main className="page">{children}</main>
-  </>;
+  </div>;
 }

@@ -8,6 +8,7 @@ describe('execution gate',()=>{
     const db=new PGlite();
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/001_core.sql',import.meta.url),'utf8'));
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/002_conversations.sql',import.meta.url),'utf8'));
+    await db.exec(await readFile(new URL('../../../../../packages/db/migrations/003_message_tasks.sql',import.meta.url),'utf8'));
     await db.query<Record<string,unknown>>("INSERT INTO users(id) VALUES ('alice'),('bob')");
     await db.query<Record<string,unknown>>("INSERT INTO tasks(id,owner_id,action,state,parameters) VALUES ('approved','alice','email.send','queued','{}'),('unapproved','alice','jira.create','proposed','{}'),('rejected','alice','email.send','rejected','{}')");
     const execute=vi.fn(async()=>({status:'uncertain' as const,error:'Check sent mail before trying again'}));
@@ -25,6 +26,7 @@ describe('execution gate',()=>{
     const db=new PGlite();
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/001_core.sql',import.meta.url),'utf8'));
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/002_conversations.sql',import.meta.url),'utf8'));
+    await db.exec(await readFile(new URL('../../../../../packages/db/migrations/003_message_tasks.sql',import.meta.url),'utf8'));
     await db.query<Record<string,unknown>>("INSERT INTO users(id) VALUES ('alice')");
     await db.query<Record<string,unknown>>("INSERT INTO tasks(id,owner_id,action,state,parameters) VALUES ('t','alice','email.send','queued','{}')");
     const execute=vi.fn(async()=>({status:'succeeded' as const,externalId:'mail-id'}));
@@ -45,6 +47,7 @@ describe('execution gate',()=>{
     const db=new PGlite();
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/001_core.sql',import.meta.url),'utf8'));
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/002_conversations.sql',import.meta.url),'utf8'));
+    await db.exec(await readFile(new URL('../../../../../packages/db/migrations/003_message_tasks.sql',import.meta.url),'utf8'));
     await db.query<Record<string,unknown>>("INSERT INTO users(id) VALUES ('alice')");
     await db.query<Record<string,unknown>>("INSERT INTO tasks(id,owner_id,action,state,parameters) VALUES ('race','alice','jira.create','queued','{}')");
     const interleaved={query:async(sql:string,params?:unknown[])=>{
