@@ -1,4 +1,5 @@
 import { useState, type FormEvent } from 'react';
+import { Logo } from '../components/Logo.js';
 
 export function SignIn({ onSubmit, initialMode = 'in' }: { onSubmit: (email: string, password: string, mode: 'in' | 'up') => Promise<void>; initialMode?: 'in' | 'up' }) {
   const [mode, setMode] = useState<'in' | 'up'>(initialMode);
@@ -21,7 +22,7 @@ export function SignIn({ onSubmit, initialMode = 'in' }: { onSubmit: (email: str
   function switchMode() { setMode(signingUp ? 'in' : 'up'); setError(''); setConfirm(''); }
 
   return <main className="card">
-    <h1>Kian</h1><p>Your personal organiser</p>
+    <Logo /><h1>Kian</h1><p className="muted">Your personal organiser</p>
     <h2>{signingUp ? 'Create your account' : 'Sign in'}</h2>
     {signingUp && <p>Your instructions, connected services and activity are private to your account. Use at least 8 characters for your password.</p>}
     <form onSubmit={submit}>
