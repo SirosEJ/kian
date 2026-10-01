@@ -1,5 +1,6 @@
 import { useEffect,useState } from 'react';
 import { apiRequest } from '../api.js';
+import { Alert, Button } from '../components/index.js';
 import { PromptBox } from '../features/prompt/PromptBox.js';
 import { TaskReview, type ReviewTask } from './TaskReview.js';
 import { Link } from '../layout/Link.js';
@@ -36,9 +37,9 @@ export function Dashboard() {
 
   return <section><h2>What would you like Kian to do?</h2>
     <PromptBox onSubmit={submit} transcribe={transcribe} />
-    {error && <p role="alert">{error}</p>}
-    {notice && <p role="status">{notice}</p>}
+    {error && <Alert tone="error">{error}</Alert>}
+    {notice && <Alert tone="info">{notice}</Alert>}
     {tasks.length === 0 && <p>Welcome to Kian. Connect Google Calendar, Jira Cloud or your mailbox under <Link to="/settings">Settings</Link> (open it from your profile at the top right), then type or record an instruction. Kian shows every proposed action for your approval before anything happens.</p>}
-    {tasks.length > 0 && <section aria-label="Proposed tasks"><h3>Your tasks</h3><button onClick={refreshTasks}>Refresh tasks</button>{tasks.map(task => <TaskReview key={task.id} task={task} onChange={changed=>setTasks(current=>current.map(t=>t.id===changed.id ? changed : t))} />)}</section>}
+    {tasks.length > 0 && <section aria-label="Proposed tasks"><div className="section-header"><h3>Your tasks</h3><Button variant="ghost" onClick={refreshTasks}>Refresh tasks</Button></div>{tasks.map(task => <TaskReview key={task.id} task={task} onChange={changed=>setTasks(current=>current.map(t=>t.id===changed.id ? changed : t))} />)}</section>}
   </section>;
 }

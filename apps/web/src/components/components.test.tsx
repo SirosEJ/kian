@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { renderToString } from 'react-dom/server';
-import { Alert, Button, Card, Logo } from './index.js';
+import { Alert, Button, Card, Logo, StatusBadge } from './index.js';
 import { Gallery } from './Gallery.js';
 
 describe('token-driven components', () => {
@@ -22,6 +22,16 @@ describe('token-driven components', () => {
     expect(dark).toMatch(/src="[^"]*sepenta-logo-dark-bg[^"]*"/);
     expect(light).toContain('alt="Sepenta: Powering Intelligent Growth"');
     expect(renderToString(<Logo width={80} />)).toContain('width:160px');
+  });
+
+  it('shows each task state as words in a coloured pill', () => {
+    const expected: Record<string, [string, string]> = { proposed: ['Needs review', 'info'], queued: ['Queued', 'warning'], succeeded: ['Done', 'success'], failed: ['Failed', 'error'], rejected: ['Rejected', 'neutral'], uncertain: ['Check needed', 'warning'] };
+    for (const [state, [label, tone]] of Object.entries(expected)) {
+      const html = renderToString(<StatusBadge state={state} />);
+      expect(html).toContain(`>${label}<`);
+      expect(html).toContain(`badge-${tone}`);
+    }
+    expect(renderToString(<StatusBadge state="something-new" />)).toContain('badge-neutral');
   });
 
   it('wraps content in a card panel', () => {

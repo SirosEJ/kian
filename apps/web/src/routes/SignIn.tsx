@@ -1,5 +1,5 @@
 import { useState, type FormEvent } from 'react';
-import { Logo } from '../components/Logo.js';
+import { Alert, Button, Logo } from '../components/index.js';
 
 export function SignIn({ onSubmit, initialMode = 'in' }: { onSubmit: (email: string, password: string, mode: 'in' | 'up') => Promise<void>; initialMode?: 'in' | 'up' }) {
   const [mode, setMode] = useState<'in' | 'up'>(initialMode);
@@ -29,8 +29,8 @@ export function SignIn({ onSubmit, initialMode = 'in' }: { onSubmit: (email: str
       <label>Email<input type="email" autoComplete="email" required value={email} onChange={event => setEmail(event.target.value)} /></label>
       <label>Password<input type="password" autoComplete={signingUp ? 'new-password' : 'current-password'} required minLength={8} value={password} onChange={event => setPassword(event.target.value)} /></label>
       {signingUp && <label>Confirm password<input type="password" autoComplete="new-password" required minLength={8} value={confirm} onChange={event => setConfirm(event.target.value)} /></label>}
-      {error && <p role="alert">{error}</p>}
-      <div className="actions"><button disabled={busy} type="submit">{signingUp ? 'Create account' : 'Sign in'}</button><button disabled={busy} type="button" onClick={switchMode}>{signingUp ? 'I already have an account' : 'Create account'}</button></div>
+      {error && <Alert tone="error">{error}</Alert>}
+      <div className="actions"><Button disabled={busy} type="submit">{signingUp ? 'Create account' : 'Sign in'}</Button><Button variant="ghost" disabled={busy} type="button" onClick={switchMode}>{signingUp ? 'I already have an account' : 'Create account'}</Button></div>
     </form>
   </main>;
 }
