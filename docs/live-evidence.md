@@ -83,3 +83,18 @@ Check on the preview, at desktop width and on a real phone (or 390px and 360px w
 | Dictation fills the box and sending it shows the thread as before (Chrome) | pending | |
 | A "Replaced" card is short and says it was never approved or run | pending | |
 
+## SFT-237: production
+
+Results to record when the owner prerequisites exist and the first release has run.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Release gate refuses a commit that is not on main, or has no successful staging deploy (automated tests; also try once for real) | pending | |
+| Run waits for reviewer approval in the `production` environment and does nothing before it | pending | |
+| First release: tests pass, deploy succeeds, `/health` ok on the Cloud Run URL | pending | |
+| `https://kian.sepenta.io/` loads over HTTPS | pending | |
+| Sign-up and sign-in work on production; the account does not exist on staging (separate Firebase project) | pending | |
+| A staging account cannot sign in on production, and data written on one never appears on the other | pending | |
+| Rollback command (previous revision) works once | pending | |
+| No secret values appear in the run log or summary | pending | |
+
