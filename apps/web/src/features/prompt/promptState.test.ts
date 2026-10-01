@@ -84,5 +84,11 @@ describe('live dictation', () => {
     expect(collectTranscript([{ 0: { transcript: 'hello ' } }, { 0: { transcript: ' wor' } }])).toBe('hello wor');
     expect(collectTranscript([])).toBe('');
   });
-});
 
+  it('empties the box when a message is sent and puts the text back if sending fails', () => {
+    const sending = run([{ type: 'edit', text: 'Book a meeting' }, { type: 'send-start' }]);
+    expect(sending.text).toBe('');
+    const failed = run([{ type: 'send-failed', message: 'x' }], sending);
+    expect(failed).toMatchObject({ status: 'idle', text: 'Book a meeting', error: 'x' });
+  });
+});

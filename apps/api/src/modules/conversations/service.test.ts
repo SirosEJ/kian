@@ -8,7 +8,7 @@ import type { Thread } from '../tasks/plan.js';
 
 async function setup(plan: Plan) {
   const db = new PGlite();
-  for (const file of ['001_core.sql', '002_conversations.sql']) await db.exec(await readFile(new URL(`../../../../../packages/db/migrations/${file}`, import.meta.url), 'utf8'));
+  for (const file of ['001_core.sql', '002_conversations.sql', '003_message_tasks.sql']) await db.exec(await readFile(new URL(`../../../../../packages/db/migrations/${file}`, import.meta.url), 'utf8'));
   await db.query("INSERT INTO users(id) VALUES ('alice'),('bob')");
   await db.query("INSERT INTO connections(id,owner_id,provider,display_name,secret_ciphertext) VALUES ('mail','alice','ionos','Work mailbox','\\x0102'),('bob-mail','bob','ionos','Bob mailbox','\\x0304')");
   return { db, service: createConversationService(db, plan), approvals: createApprovalService(db) };
@@ -165,6 +165,31 @@ describe('conversation with Kian', () => {
     await service.converse('alice', input('latest', c));
     expect(seen?.history).toHaveLength(LIMITS.historyWindow);
     expect(seen?.history.at(-1)).toEqual({ role: 'assistant', content: 'msg 60' });
+    await db.close();
+  });
+
+  it('returns each task under the reply that prepared it, with its current state', async () => {
+    let n = 0;
+    const { db, service } = await setup(async () => (n++ === 0 ? { reply: 'One.', tasks: [meeting('2026-10-02T15:00:00+01:00')], pending: 'keep' } : { reply: 'Two.', tasks: [meeting('2026-10-03T15:00:00+01:00')], pending: 'replace' }));
+    const a = await service.converse('alice', input('first'));
+    await service.converse('alice', input('second', a.conversationId));
+    const { messages } = await service.latest('alice');
+    const [, first, , second] = messages;
+    expect(first.tasks).toMatchObject([{ id: a.tasks[0].id, state: 'replaced', action: 'calendar.create' }]);
+    expect(second.tasks).toMatchObject([{ state: 'proposed', parameters: { summary: 'Planning' } }]);
+    expect(messages[0].tasks).toEqual([]);
+    await db.close();
+  });
+
+  it('lists past conversations by their first message and opens one only for its owner', async () => {
+    const { db, service } = await setup(async () => ({ reply: 'Hi.', tasks: [], pending: 'keep' }));
+    const a = await service.converse('alice', input('Book a   meeting\nwith Sam'));
+    await service.create('alice');
+    await service.converse('bob', input('bob only'));
+    const list = await service.list('alice');
+    expect(list).toMatchObject([{ id: a.conversationId, title: 'Book a meeting with Sam' }]);
+    expect((await service.get('alice', a.conversationId)).messages).toHaveLength(2);
+    await expect(service.get('bob', a.conversationId)).rejects.toMatchObject({ statusCode: 404 });
     await db.close();
   });
 });

@@ -68,3 +68,18 @@ Use the real planning model on the story preview. Model: `KIAN_PLANNING_MODEL` i
 | A second account never sees this thread | pending | |
 | Not included: the reply appears when complete (no word-by-word streaming) | n/a | |
 
+## SFT-254: chat screen
+
+Check on the preview, at desktop width and on a real phone (or 390px and 360px wide).
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Empty chat shows a welcome and four examples; tapping one sends it | pending | |
+| The prompt box stays at the bottom while a long chat scrolls; the latest message is never hidden behind it | pending | |
+| A task card appears under the reply that prepared it; Approve / Reject / Edit work there and update the card in place | pending | |
+| Scroll up in a long chat, send a message: it jumps to the new message; receive a reply while scrolled up: "Jump to latest" appears | pending | |
+| Phone: keyboard open keeps the prompt and latest message visible; no sideways scrolling; buttons easy to tap | pending | |
+| History lists earlier conversations; choosing one opens it; New conversation starts a clean chat | pending | |
+| Dictation fills the box and sending it shows the thread as before (Chrome) | pending | |
+| A "Replaced" card is short and says it was never approved or run | pending | |
+

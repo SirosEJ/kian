@@ -86,4 +86,14 @@ describe('task intake routes', () => {
     expect([created.statusCode, created.json()]).toEqual([201, { conversationId: 'new-alice' }]);
     await app.close();
   });
+
+  it('lists and opens conversations, mapping a foreign one to 404', async () => {
+    const app = Fastify();
+    registerTaskRoutes(app, { authenticate: auth, plan: async () => ({ reply: '', tasks: [] }), save: async () => {}, conversations: { latest: async () => ({ conversationId: null, messages: [] }), create: async () => 'x', list: async () => [{ id: 'c1', createdAt: 'now', title: 'Hello' }], get: async (_o, id) => { if (id !== 'c1') throw new ConversationError(404, 'Conversation not found'); return { conversationId: id, messages: [] }; } } });
+    expect((await app.inject({ method: 'GET', url: '/conversations' })).json()).toEqual([{ id: 'c1', createdAt: 'now', title: 'Hello' }]);
+    expect((await app.inject({ method: 'GET', url: '/conversations/c1' })).json()).toEqual({ conversationId: 'c1', messages: [] });
+    expect((await app.inject({ method: 'GET', url: '/conversations/other' })).statusCode).toBe(404);
+    expect((await app.inject({ method: 'GET', url: '/conversations/latest' })).statusCode).toBe(200);
+    await app.close();
+  });
 });

@@ -13,7 +13,9 @@ export class ConversationError extends Error {
 }
 
 export type Plan = (ownerId: string, text: string, locale: string, timeZone: string, thread: Thread) => Promise<PlanResult>;
-export type StoredMessage = { id: string; role: 'user' | 'assistant'; content: string; createdAt: string };
+export type TaskView = { id: string; action: string; state: string; version: number; connectionId: string | null; destination: string | null; parameters: Record<string, unknown>; uncertainties: string[] };
+export type StoredMessage = { id: string; role: 'user' | 'assistant'; content: string; createdAt: string; tasks: TaskView[] };
+export type ConversationSummary = { id: string; createdAt: string; title: string };
 export type Converse = (ownerId: string, input: { text: string; conversationId?: string; locale: string; timeZone: string }) => Promise<{ conversationId: string; reply: string; tasks: TaskProposal[] }>;
 
 /**
@@ -59,18 +61,35 @@ export function createConversationService(db: Queryable, plan: Plan) {
           if (updated.rows.length) await client.query('INSERT INTO activity(id,owner_id,task_id,event,details) VALUES ($1,$2,$3,$4,$5)', [randomUUID(), ownerId, row.id, 'task.replaced', JSON.stringify({ conversationId: id })]);
         }
       }
-      await client.query(`INSERT INTO messages (id,conversation_id,owner_id,role,content,created_at) VALUES ($1,$2,$3,'user',$4,clock_timestamp()),($5,$2,$3,'assistant',$6,clock_timestamp() + interval '1 millisecond')`, [randomUUID(), id, ownerId, text, randomUUID(), result.reply]);
+      await client.query(`INSERT INTO messages (id,conversation_id,owner_id,role,content,task_ids,created_at) VALUES ($1,$2,$3,'user',$4,'[]',clock_timestamp()),($5,$2,$3,'assistant',$6,$7,clock_timestamp() + interval '1 millisecond')`, [randomUUID(), id, ownerId, text, randomUUID(), result.reply, JSON.stringify(tasks.map(t => t.id))]);
       await client.query('UPDATE conversations SET updated_at=now() WHERE id=$1', [id]);
       return { conversationId: id, reply: result.reply, tasks };
     });
   };
 
-  async function latest(ownerId: string): Promise<{ conversationId: string | null; messages: StoredMessage[] }> {
-    const row = (await db.query('SELECT id FROM conversations WHERE owner_id=$1 ORDER BY created_at DESC, id DESC LIMIT 1', [ownerId])).rows[0];
-    if (!row) return { conversationId: null, messages: [] };
-    const rows = (await db.query('SELECT id,role,content,created_at FROM messages WHERE conversation_id=$1 AND owner_id=$2 ORDER BY created_at DESC, id DESC LIMIT 100', [row.id, ownerId])).rows.reverse();
-    return { conversationId: row.id, messages: rows.map(m => ({ id: m.id, role: m.role, content: m.content, createdAt: new Date(m.created_at).toISOString() })) };
+  async function view(ownerId: string, conversationId: string): Promise<{ conversationId: string; messages: StoredMessage[] }> {
+    const rows = (await db.query('SELECT id,role,content,task_ids,created_at FROM messages WHERE conversation_id=$1 AND owner_id=$2 ORDER BY created_at DESC, id DESC LIMIT 100', [conversationId, ownerId])).rows.reverse();
+    const ids = [...new Set(rows.flatMap(m => m.task_ids as string[]))];
+    // Current state of each task, so a card shows approved, rejected or replaced as it is now.
+    const found = ids.length ? (await db.query('SELECT id,action,state,parameters,version FROM tasks WHERE owner_id=$1 AND id = ANY($2::text[])', [ownerId, ids])).rows : [];
+    const byId = new Map<string, TaskView>(found.map(t => [t.id as string, { id: t.id, action: t.action, state: t.state, version: t.version, connectionId: t.parameters.connectionId ?? null, destination: t.parameters.destination ?? null, parameters: t.parameters.fields ?? {}, uncertainties: t.parameters.uncertainties ?? [] }]));
+    return { conversationId, messages: rows.map(m => ({ id: m.id, role: m.role, content: m.content, createdAt: new Date(m.created_at).toISOString(), tasks: (m.task_ids as string[]).map(id => byId.get(id)).filter((t): t is TaskView => !!t) })) };
   }
 
-  return { converse, latest, create };
+  async function latest(ownerId: string): Promise<{ conversationId: string | null; messages: StoredMessage[] }> {
+    const row = (await db.query('SELECT id FROM conversations WHERE owner_id=$1 ORDER BY created_at DESC, id DESC LIMIT 1', [ownerId])).rows[0];
+    return row ? view(ownerId, row.id) : { conversationId: null, messages: [] };
+  }
+
+  async function get(ownerId: string, conversationId: string) {
+    return view(ownerId, await ownedConversation(ownerId, conversationId));
+  }
+
+  /** Past conversations, newest first, each named by what the user first said. Empty ones are left out. */
+  async function list(ownerId: string): Promise<ConversationSummary[]> {
+    const rows = (await db.query(`SELECT c.id,c.created_at,(SELECT content FROM messages m WHERE m.conversation_id=c.id AND m.role='user' ORDER BY m.created_at,m.id LIMIT 1) AS first FROM conversations c WHERE c.owner_id=$1 AND EXISTS (SELECT 1 FROM messages m WHERE m.conversation_id=c.id) ORDER BY c.created_at DESC, c.id DESC LIMIT 30`, [ownerId])).rows;
+    return rows.map(r => ({ id: r.id, createdAt: new Date(r.created_at).toISOString(), title: String(r.first ?? 'Conversation').replace(/\s+/g, ' ').slice(0, 80) }));
+  }
+
+  return { converse, latest, get, list, create };
 }

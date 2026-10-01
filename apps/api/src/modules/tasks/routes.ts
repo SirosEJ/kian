@@ -2,7 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { TaskProposal } from '@kian/contracts';
 import type { PlanResult } from './plan.js';
 import OpenAI, { toFile } from 'openai';
-import { ConversationError, type Converse, type StoredMessage } from '../conversations/service.js';
+import { ConversationError, type Converse, type ConversationSummary, type StoredMessage } from '../conversations/service.js';
 
 export type TaskRoutes = {
   authenticate: (request: { headers: { authorization?: string } }) => Promise<string>;
@@ -10,7 +10,7 @@ export type TaskRoutes = {
   save: (ownerId: string, text: string, tasks: TaskProposal[]) => Promise<TaskProposal[] | void>;
   /** When set, messages are part of a saved conversation (plan and save are then handled by it). */
   converse?: Converse;
-  conversations?: { latest: (ownerId: string) => Promise<{ conversationId: string | null; messages: StoredMessage[] }>; create: (ownerId: string) => Promise<string> };
+  conversations?: { latest: (ownerId: string) => Promise<{ conversationId: string | null; messages: StoredMessage[] }>; get?: (ownerId: string, id: string) => Promise<{ conversationId: string; messages: StoredMessage[] }>; list?: (ownerId: string) => Promise<ConversationSummary[]>; create: (ownerId: string) => Promise<string> };
   transcribe?: (audio: Buffer, mimeType: string) => Promise<string>;
 };
 
@@ -42,6 +42,17 @@ export function registerTaskRoutes(app: FastifyInstance, deps: TaskRoutes) {
     const ownerId = await deps.authenticate(request);
     if (!deps.conversations) return reply.code(404).send({ error: 'Conversations unavailable' });
     return deps.conversations.latest(ownerId);
+  });
+  app.get('/conversations', async (request, reply) => {
+    const ownerId = await deps.authenticate(request);
+    if (!deps.conversations?.list) return reply.code(404).send({ error: 'Conversations unavailable' });
+    return deps.conversations.list(ownerId);
+  });
+  app.get<{ Params: { id: string } }>('/conversations/:id', async (request, reply) => {
+    const ownerId = await deps.authenticate(request);
+    if (!deps.conversations?.get) return reply.code(404).send({ error: 'Conversations unavailable' });
+    try { return await deps.conversations.get(ownerId, request.params.id); }
+    catch (error) { if (error instanceof ConversationError) return reply.code(error.statusCode).send({ error: error.message }); throw error; }
   });
   app.post('/conversations', async (request, reply) => {
     const ownerId = await deps.authenticate(request);

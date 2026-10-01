@@ -1,4 +1,4 @@
-import { useEffect,useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from 'react';
 import { apiRequest } from '../api.js';
 import { Alert, AssistantMessage, Button } from '../components/index.js';
 import { PromptBox } from '../features/prompt/PromptBox.js';
@@ -6,6 +6,9 @@ import { TaskReview, type ReviewTask } from './TaskReview.js';
 import { Link } from '../layout/Link.js';
 import { describePlanResult } from '../features/prompt/planResult.js';
 import { Thread, type ChatMessage } from '../features/conversation/Thread.js';
+import { Welcome } from '../features/conversation/Welcome.js';
+import { HistoryMenu, type ConversationSummary } from '../features/conversation/HistoryMenu.js';
+import { isNearBottom, scrollDecision } from '../features/conversation/scroll.js';
 
 async function encode(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -22,45 +25,121 @@ async function transcribe(blob: Blob): Promise<string> {
   return result.text;
 }
 
+type Msg = ChatMessage<ReviewTask>;
+
+/** On phones the on-screen keyboard shrinks the visual viewport but not the layout one; follow it so the prompt stays visible. */
+function useVisibleHeight() {
+  useEffect(() => {
+    const viewport = window.visualViewport;
+    if (!viewport) return;
+    const apply = () => { document.documentElement.style.setProperty('--app-height', `${viewport.height}px`); window.scrollTo(0, 0); };
+    apply();
+    viewport.addEventListener('resize', apply);
+    return () => { viewport.removeEventListener('resize', apply); document.documentElement.style.removeProperty('--app-height'); };
+  }, []);
+}
+
 export function Dashboard() {
   const [tasks, setTasks] = useState<ReviewTask[]>([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<Msg[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
-  useEffect(()=>{
-    void apiRequest('/tasks').then(setTasks).catch(()=>{});
-    void apiRequest('/conversations/latest').then(latest=>{setConversationId(latest.conversationId);setMessages(latest.messages);}).catch(()=>{});
-  },[]);
+  const [thinking, setThinking] = useState(false);
+  const [history, setHistory] = useState<ConversationSummary[] | null>(null);
+  const scroller = useRef<HTMLDivElement>(null);
+  const atBottom = useRef(true);
+  const justSent = useRef(false);
+  const [showJump, setShowJump] = useState(false);
+  useVisibleHeight();
 
-  function refreshTasks() {void apiRequest('/tasks').then(setTasks).catch(()=>setError('Could not refresh tasks.'));}
+  const open = useCallback((latest: { conversationId: string | null; messages: Msg[] }) => { setConversationId(latest.conversationId); setMessages(latest.messages); justSent.current = true; }, []);
+  useEffect(() => {
+    void apiRequest('/tasks').then(setTasks).catch(() => {});
+    void apiRequest('/conversations/latest').then(open).catch(() => {});
+  }, [open]);
+
+  // Keep the newest message in view, unless the reader scrolled up to read something earlier.
+  useLayoutEffect(() => {
+    const box = scroller.current;
+    if (!box) return;
+    if (scrollDecision(atBottom.current, justSent.current) === 'follow') { box.scrollTop = box.scrollHeight; setShowJump(false); }
+    else setShowJump(true);
+    justSent.current = false;
+  }, [messages, thinking]);
+
+  function onScroll() {
+    const box = scroller.current;
+    if (!box) return;
+    atBottom.current = isNearBottom(box);
+    if (atBottom.current) setShowJump(false);
+  }
+  const jump = () => { const box = scroller.current; if (box) box.scrollTo({ top: box.scrollHeight, behavior: 'smooth' }); };
 
   async function submit(text: string) {
-    const result = await apiRequest('/instructions', 'POST', { text, conversationId: conversationId ?? undefined, locale: navigator.language, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
-    setError('');
-    const shown = describePlanResult(result);
-    setNotice(shown.notice);
-    setConversationId(result.conversationId);
     const stamp = Date.now();
-    setMessages(current=>[...current,{id:`u${stamp}`,role:'user',content:text},{id:`a${stamp}`,role:'assistant',content:shown.reply || 'I did not find anything to prepare from that.'}]);
-    // A later message can replace an earlier undecided proposal, so reload the list instead of only adding to it.
-    refreshTasks();
+    justSent.current = true;
+    setMessages(current => [...current, { id: `pending-${stamp}`, role: 'user', content: text }]);
+    setThinking(true);
+    setHistory(null);
+    try {
+      const result = await apiRequest('/instructions', 'POST', { text, conversationId: conversationId ?? undefined, locale: navigator.language, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
+      setError('');
+      setNotice(describePlanResult(result).notice);
+      setConversationId(result.conversationId);
+      justSent.current = true;
+      // Reload the thread so every card shows its current state (an earlier proposal may now be replaced).
+      try { open(await apiRequest(`/conversations/${encodeURIComponent(result.conversationId)}`)); }
+      catch { setMessages(current => [...current.filter(m => m.id !== `pending-${stamp}`), { id: `u${stamp}`, role: 'user', content: text }, { id: `a${stamp}`, role: 'assistant', content: result.reply, tasks: result.tasks }]); }
+      void apiRequest('/tasks').then(setTasks).catch(() => {});
+    } catch (failure) {
+      setMessages(current => current.filter(m => m.id !== `pending-${stamp}`));
+      throw failure;
+    } finally { setThinking(false); }
   }
 
   async function startOver() {
     try {
       const created = await apiRequest('/conversations', 'POST');
-      setConversationId(created.conversationId);setMessages([]);setNotice('');setError('');
+      setConversationId(created.conversationId);setMessages([]);setNotice('');setError('');setHistory(null);
     } catch {setError('Could not start a new conversation. Try again.');}
   }
 
-  const open = tasks.filter(task=>task.state!=='replaced');
-  return <section><div className="section-header"><h2>What would you like Kian to do?</h2>{messages.length>0 && <Button variant="ghost" onClick={()=>void startOver()}>New conversation</Button>}</div>
-    <Thread messages={messages} />
-    <PromptBox onSubmit={submit} transcribe={transcribe} />
-    {error && <Alert tone="error">{error}</Alert>}
-    {notice && <Alert tone="info">{notice}</Alert>}
-    {open.length === 0 && messages.length === 0 && <p>Welcome to Kian. Connect Google Calendar, Jira Cloud or your mailbox under <Link to="/settings">Settings</Link> (open it from your profile at the top right), then type or record what you need. Kian talks it through with you and shows every proposed action for your approval before anything happens.</p>}
-    {open.length > 0 && <section aria-label="Proposed tasks"><div className="section-header"><h3>Your tasks</h3><Button variant="ghost" onClick={refreshTasks}>Refresh tasks</Button></div>{open.map(task => <TaskReview key={task.id} task={task} onChange={changed=>setTasks(current=>current.map(t=>t.id===changed.id ? changed : t))} />)}</section>}
+  async function toggleHistory() {
+    if (history) { setHistory(null); return; }
+    try { setHistory(await apiRequest('/conversations')); } catch { setError('Could not load earlier conversations.'); }
+  }
+  async function openConversation(id: string) {
+    try { open(await apiRequest(`/conversations/${encodeURIComponent(id)}`)); setHistory(null); setNotice(''); setError(''); }
+    catch { setError('Could not open that conversation.'); }
+  }
+
+  const onChange = (changed: ReviewTask) => {
+    setMessages(current => current.map(m => m.tasks ? { ...m, tasks: m.tasks.map(t => t.id === changed.id ? changed : t) } : m));
+    setTasks(current => current.map(t => t.id === changed.id ? changed : t));
+  };
+  // Proposals from before conversations existed have no message to sit under; keep them reachable.
+  const inChat = new Set(messages.flatMap(m => (m.tasks ?? []).map(t => t.id)));
+  const waiting = tasks.filter(t => t.state === 'proposed' && !inChat.has(t.id) && messages.length === 0);
+  const empty = messages.length === 0 && !thinking;
+
+  return <section className="chat" aria-label="Chat with Kian">
+    <div className="chat-header"><div className="chat-column chat-actions">
+      <div className="history"><Button variant="ghost" aria-haspopup="menu" aria-expanded={history !== null} onClick={() => void toggleHistory()}>History</Button>{history && <HistoryMenu conversations={history} currentId={conversationId} onPick={id => void openConversation(id)} />}</div>
+      <Button variant="ghost" disabled={messages.length === 0 || thinking} onClick={() => void startOver()}>New conversation</Button>
+    </div></div>
+    <div className="chat-body">
+      <div className="chat-scroll" ref={scroller} onScroll={onScroll}><div className="chat-column">
+        {empty && <Welcome onPick={text => void submit(text).catch(() => setError('Could not reach Kian. Try again.'))} disabled={thinking} />}
+        {empty && waiting.length > 0 && <section aria-label="Waiting for you"><h3>Waiting for your decision</h3>{waiting.map(task => <TaskReview key={task.id} task={task} onChange={onChange} />)}</section>}
+        <Thread messages={messages} thinking={thinking} renderTask={task => <TaskReview task={task} onChange={onChange} />} />
+      </div></div>
+      {showJump && <Button className="jump" variant="secondary" onClick={jump}>Jump to latest</Button>}
+    </div>
+    <div className="chat-composer"><div className="chat-column">
+      {error && <Alert tone="error">{error}</Alert>}
+      {notice && <Alert tone="info">{notice}</Alert>}
+      <PromptBox onSubmit={submit} transcribe={transcribe} />
+    </div></div>
   </section>;
 }
