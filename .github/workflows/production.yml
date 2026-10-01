@@ -1,0 +1,180 @@
+name: Deploy Production
+
+# Releases one commit that is already on main and already passed Deploy Staging to https://kian.sepenta.io/.
+# Manual only. The deploy job uses the GitHub "production" environment, which must have required reviewers:
+# nothing reaches production until a reviewer approves the run there.
+on:
+  workflow_dispatch:
+    inputs:
+      sha:
+        description: Full 40-character commit SHA on main that passed Deploy Staging
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  actions: read
+  id-token: write
+
+concurrency:
+  group: kian-production
+  cancel-in-progress: false
+
+env:
+  SERVICE: kian-prod
+  REGION: europe-west1
+  PUBLIC_URL: https://kian.sepenta.io/
+
+jobs:
+  verify:
+    name: Commit is on main and passed staging
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.sha }}
+          fetch-depth: 0
+      - name: Check the release candidate
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RELEASE_SHA: ${{ inputs.sha }}
+        run: scripts/verify-release-candidate.sh "$RELEASE_SHA"
+
+  test:
+    needs: verify
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.sha }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter './packages/**' build
+      - run: pnpm test
+      - run: pnpm test:e2e
+      - run: pnpm typecheck
+      - run: pnpm build
+
+  deploy-production:
+    needs: [verify, test]
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ inputs.sha }}
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Check the owner prerequisites
+        env:
+          PROJECT: ${{ vars.GCP_PROJECT_ID }}
+          OPENAI_SECRET: ${{ vars.KIAN_OPENAI_SECRET || 'estate-openai-api-key' }}
+          GOOGLE_CLIENT_ID: ${{ vars.KIAN_GOOGLE_CLIENT_ID }}
+          JIRA_CLIENT_ID: ${{ vars.KIAN_JIRA_CLIENT_ID }}
+        run: |
+          set -euo pipefail
+          missing=""
+          for name in GCP_PROJECT_ID KIAN_FIREBASE_API_KEY KIAN_FIREBASE_AUTH_DOMAIN KIAN_FIREBASE_PROJECT_ID; do
+            case "$name" in
+              GCP_PROJECT_ID) value="${{ vars.GCP_PROJECT_ID }}";;
+              KIAN_FIREBASE_API_KEY) value="${{ vars.KIAN_FIREBASE_API_KEY }}";;
+              KIAN_FIREBASE_AUTH_DOMAIN) value="${{ vars.KIAN_FIREBASE_AUTH_DOMAIN }}";;
+              KIAN_FIREBASE_PROJECT_ID) value="${{ vars.KIAN_FIREBASE_PROJECT_ID }}";;
+            esac
+            [ -n "$value" ] || missing="$missing variable:$name"
+          done
+          for secret in kian-prod-database-url kian-prod-encryption-key "$OPENAI_SECRET"; do
+            gcloud secrets describe "$secret" --project "$PROJECT" >/dev/null 2>&1 || missing="$missing secret:$secret"
+          done
+          if [ -n "$missing" ]; then
+            echo "::error::Production is not set up yet. Missing:$missing. See docs/operations.md, section Production." >&2
+            exit 1
+          fi
+          # Provider apps are optional at first; without them the Settings page simply cannot connect that provider.
+          [ -n "$GOOGLE_CLIENT_ID" ] || echo "::warning::Google Calendar not configured for production (variable KIAN_GOOGLE_CLIENT_ID)"
+          [ -n "$JIRA_CLIENT_ID" ] || echo "::warning::Jira Cloud not configured for production (variable KIAN_JIRA_CLIENT_ID)"
+
+      - name: Write public Firebase web config for the image build
+        run: |
+          {
+            echo "VITE_FIREBASE_API_KEY=${{ vars.KIAN_FIREBASE_API_KEY }}"
+            echo "VITE_FIREBASE_AUTH_DOMAIN=${{ vars.KIAN_FIREBASE_AUTH_DOMAIN }}"
+            echo "VITE_FIREBASE_PROJECT_ID=${{ vars.KIAN_FIREBASE_PROJECT_ID }}"
+          } > firebase-public.env
+
+      - name: Resolve provider configuration
+        id: providers
+        env:
+          OPENAI_SECRET: ${{ vars.KIAN_OPENAI_SECRET || 'estate-openai-api-key' }}
+          GOOGLE_CLIENT_ID: ${{ vars.KIAN_GOOGLE_CLIENT_ID }}
+          JIRA_CLIENT_ID: ${{ vars.KIAN_JIRA_CLIENT_ID }}
+        run: |
+          ENVS="GOOGLE_CLOUD_PROJECT=${{ vars.KIAN_FIREBASE_PROJECT_ID }}"
+          # The database address and the encryption key come from Secret Manager only, so they never appear in this workflow's output.
+          SECRETS="DATABASE_URL=kian-prod-database-url:latest,OPENAI_API_KEY=${OPENAI_SECRET}:latest,KIAN_ENCRYPTION_KEY=kian-prod-encryption-key:latest"
+          have_secret() { gcloud secrets describe "$1" --project "${{ vars.GCP_PROJECT_ID }}" >/dev/null 2>&1; }
+          if [ -n "$GOOGLE_CLIENT_ID" ] && have_secret kian-google-client-secret; then
+            ENVS="$ENVS,GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID,GOOGLE_REDIRECT_URI=${PUBLIC_URL}"
+            SECRETS="$SECRETS,GOOGLE_CLIENT_SECRET=kian-google-client-secret:latest"
+          fi
+          if [ -n "$JIRA_CLIENT_ID" ] && have_secret kian-jira-client-secret; then
+            ENVS="$ENVS,JIRA_CLIENT_ID=$JIRA_CLIENT_ID,JIRA_REDIRECT_URI=${PUBLIC_URL}"
+            SECRETS="$SECRETS,JIRA_CLIENT_SECRET=kian-jira-client-secret:latest"
+          fi
+          echo "envs=$ENVS" >> "$GITHUB_OUTPUT"
+          echo "secrets=$SECRETS" >> "$GITHUB_OUTPUT"
+
+      - name: Remember the current revision (for rollback)
+        run: |
+          PREVIOUS="$(gcloud run services describe "${SERVICE}" --project "${{ vars.GCP_PROJECT_ID }}" --region "${REGION}" --format='value(status.latestReadyRevisionName)' 2>/dev/null || true)"
+          echo "Previous revision: ${PREVIOUS:-none (first deploy)}" >> "$GITHUB_STEP_SUMMARY"
+          echo "Rollback: gcloud run services update-traffic ${SERVICE} --project ${{ vars.GCP_PROJECT_ID }} --region ${REGION} --to-revisions=${PREVIOUS:-<revision>}=100" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Deploy to Cloud Run production
+        env:
+          RELEASE_SHA: ${{ inputs.sha }}
+        run: |
+          gcloud run deploy "${SERVICE}" \
+            --project "${{ vars.GCP_PROJECT_ID }}" \
+            --source . \
+            --region "${REGION}" \
+            --platform managed \
+            --no-invoker-iam-check \
+            --no-cpu-throttling \
+            --min-instances=1 \
+            --max-instances=5 \
+            --command "sh" --args "scripts/preview-entrypoint.sh" \
+            --set-env-vars="${{ steps.providers.outputs.envs }}" \
+            --set-secrets="${{ steps.providers.outputs.secrets }}" \
+            --update-labels="commit=${RELEASE_SHA:0:12}" \
+            --memory=1Gi \
+            --timeout=900 \
+            --quiet
+
+      - name: Verify production health
+        env:
+          RELEASE_SHA: ${{ inputs.sha }}
+        run: |
+          URL="$(gcloud run services describe "${SERVICE}" --project "${{ vars.GCP_PROJECT_ID }}" --region "${REGION}" --format='value(status.url)')"
+          test -n "$URL"
+          curl --fail --show-error --silent --retry 10 --retry-delay 3 --retry-all-errors "${URL}/health" | tee /tmp/health.json
+          grep -Eq '"status": ?"ok"' /tmp/health.json
+          echo "Released ${RELEASE_SHA} to ${SERVICE} (${URL})" >> "$GITHUB_STEP_SUMMARY"
+          # The public address depends on the owner's DNS record; report it, but do not fail a healthy deploy because of it.
+          if curl --fail --silent --max-time 20 "${PUBLIC_URL}health" | grep -Eq '"status": ?"ok"'; then
+            echo "${PUBLIC_URL} is serving the app." >> "$GITHUB_STEP_SUMMARY"
+          else
+            echo "::warning::${PUBLIC_URL}health is not reachable yet. Check the domain mapping and DNS record (docs/operations.md, Production)."
+          fi

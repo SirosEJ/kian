@@ -18,6 +18,51 @@ No staging cloud resources or paid production services have been created by this
 
 To enable a provider on staging, set the GitHub repository variable `KIAN_GOOGLE_CLIENT_ID` / `KIAN_JIRA_CLIENT_ID`, create the Secret Manager secret `kian-google-client-secret` / `kian-jira-client-secret`, and grant the Cloud Run runtime service account (`<project number>-compute@developer.gserviceaccount.com`) `roles/secretmanager.secretAccessor` on that secret. The workflow skips a provider, with a warning, until both exist. Secret values are created by the owner and never committed.
 
+## Production
+
+Production is a separate Cloud Run service, `kian-prod` (europe-west1), served at `https://kian.sepenta.io/`. It has its own Neon database, its own encryption key and its own Firebase project; nothing is shared with `kian-staging` or the story previews. It runs with one instance always on and continuous CPU, because the task worker needs it.
+
+### Releasing
+
+Run the workflow "Deploy Production" (Actions tab, or `gh workflow run production.yml -f sha=<40-character sha>`). It:
+
+1. checks the commit is on `main` and that its own "Deploy Staging" run succeeded (`scripts/verify-release-candidate.sh`; otherwise it stops);
+2. runs the full test suite on exactly that commit;
+3. waits for a required reviewer to approve the run in the GitHub `production` environment;
+4. checks the owner prerequisites below and stops with a list of what is missing;
+5. deploys that commit (labelled `commit=<first 12 characters>`), runs the database migrations on start, and checks `/health`. The run summary shows the previous revision, the rollback command, and whether `https://kian.sepenta.io/health` already answers.
+
+Only commits that reached staging can be released. If staging has not deployed the commit you want (a newer merge replaced it in the queue), release the newer one, or re-run "Deploy Staging" for it first.
+
+### Rolling back
+
+Send traffic back to the previous revision (the run summary prints the exact command):
+
+```bash
+gcloud run services update-traffic kian-prod --project <project> --region europe-west1 --to-revisions=<previous-revision>=100
+```
+
+Migrations only move forward and are not undone by a rollback. A release that changes the database must stay compatible with the previous revision for one release, or be fixed forward by a new release.
+
+### Owner prerequisites (one time; the agent never does these)
+
+1. **Firebase project for production**: a separate project with Authentication > Email/Password enabled and `kian.sepenta.io` added under authorized domains. Note its web API key, auth domain and project ID.
+2. **Neon database for production**: a separate Neon project (or at least a separate database and role) for production. Store its non-pooled connection string as the Secret Manager secret `kian-prod-database-url`.
+3. **Secrets** in Secret Manager (values never go in GitHub, the repo or chat): `kian-prod-database-url`, `kian-prod-encryption-key` (a new base64 32-byte key, not the staging key; losing it makes saved connections unusable), and access to the OpenAI key secret (`estate-openai-api-key`, or another secret named in the variable `KIAN_OPENAI_SECRET`). Later, `kian-google-client-secret` and `kian-jira-client-secret` for the production OAuth apps.
+4. **Runtime access**: the Cloud Run runtime service account needs `roles/secretmanager.secretAccessor` on each secret above, and `roles/firebaseauth.viewer` on the production Firebase project (same as staging needed).
+5. **GitHub environment `production`** (Settings > Environments): required reviewers (at least you), and these environment variables: `GCP_WORKLOAD_IDENTITY_PROVIDER`, `GCP_DEPLOYER_SERVICE_ACCOUNT` (a deployer that may deploy `kian-prod` and read the secrets' metadata; do not reuse a broader identity than needed), `GCP_PROJECT_ID`, `KIAN_FIREBASE_API_KEY`, `KIAN_FIREBASE_AUTH_DOMAIN`, `KIAN_FIREBASE_PROJECT_ID`, and later `KIAN_GOOGLE_CLIENT_ID` and `KIAN_JIRA_CLIENT_ID`.
+6. **Domain**: after the first deploy, map the domain and add the DNS record it asks for:
+
+   ```bash
+   gcloud beta run domain-mappings create --service kian-prod --domain kian.sepenta.io --region europe-west1 --project <project>
+   gcloud beta run domain-mappings describe --domain kian.sepenta.io --region europe-west1 --project <project>
+   ```
+
+   The second command shows the DNS record (usually a CNAME to `ghs.googlehosted.com.`). Managed TLS takes a short while to become active.
+7. **OAuth apps** (when you connect providers): register `https://kian.sepenta.io/` (with the trailing slash) as the redirect URL of the production Google and Atlassian apps, create the secrets in step 3 and set the client ID variables in step 5.
+
+Production never contains test credentials. Launch gates that are not part of the deploy: the live journey (SFT-232) and the privacy, terms and retention decisions in `account-lifecycle.md` before public sign-up.
+
 ## Story preview cleanup
 
 Each story preview creates a Cloud Run service and a Neon database branch, both named `kian-sft-<N>`. The Neon project has a branch limit; when it is reached, preview deploys fail with Neon's own message ("branches limit exceeded"). `.github/workflows/preview-cleanup.yml` removes both automatically when a pull request from an `SFT-<N>-...` branch closes, merged or not (pull requests from this repository only). It uses `scripts/cleanup-story-preview.sh`, which only builds the name `kian-sft-<digits>`, so it cannot touch `kian-staging`, production, or the Neon default branch (which it also refuses explicitly), and running it twice is harmless.
