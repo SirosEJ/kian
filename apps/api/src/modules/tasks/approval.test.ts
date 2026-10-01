@@ -60,5 +60,29 @@ describe('transactions on a connection pool', () => {
     expect(release).toHaveBeenCalledTimes(2);
     await db.close();
   });
+
+  it('describes activity with the task it belongs to, and never joins another user\'s task', async () => {
+    const { db, service } = await setup();
+    await service.decideTask('alice', 'a', 1, 'approve');
+    await service.decideTask('alice', 'b', 1, 'reject');
+    const alice = await service.listActivity('alice');
+    expect(alice.map(a => [a.event, a.action, a.destination]).sort()).toEqual([['task.approved', 'jira.create', 'SFT'], ['task.rejected', 'email.send', 'x@example.com']]);
+    // Even if an activity row pointed at someone else's task id, the other user's details must not appear.
+    await db.query("INSERT INTO activity(id,owner_id,task_id,event) VALUES ('stray','bob','a','task.approved')");
+    expect((await service.listActivity('bob'))[0]).toMatchObject({ id: 'stray', action: null, destination: null });
+    await db.close();
+  });
+
+  it('lists trusted actions with the name of the connection they apply to', async () => {
+    const { db, service } = await setup();
+    await db.query("INSERT INTO connections(id,owner_id,provider,display_name) VALUES ('mail-1','alice','ionos','Work mailbox'),('bob-mail','bob','ionos','Bob mailbox')");
+    await db.query("INSERT INTO trust_rules(id,owner_id,connection_id,action,constraints) VALUES ('r1','alice','mail-1','email.send',$1)", [JSON.stringify({ destinations: ['x@example.com'] })]);
+    const rules = await service.listRules('alice');
+    expect(rules).toHaveLength(1);
+    expect(rules[0]).toMatchObject({ id: 'r1', connection_name: 'Work mailbox', action: 'email.send', revoked_at: null });
+    expect(rules[0].created_at).toBeTruthy();
+    expect(await service.listRules('bob')).toEqual([]);
+    await db.close();
+  });
 });
 

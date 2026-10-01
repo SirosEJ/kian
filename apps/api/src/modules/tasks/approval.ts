@@ -60,11 +60,16 @@ export function createApprovalService(db: Queryable) {
       return task;
     },
     async listActivity(ownerId: string) {
-      const result = await db.query('SELECT id,task_id,event,details,created_at FROM activity WHERE owner_id=$1 ORDER BY created_at DESC,id DESC', [ownerId]);
-      return result.rows as { id:string; task_id:string; event:string; details:unknown; created_at:Date }[];
+      // The task is joined by owner as well, so a task id can never pull in another user's data.
+      const result = await db.query(`SELECT a.id,a.task_id,a.event,a.details,a.created_at,t.action,t.parameters->>'destination' AS destination
+        FROM activity a LEFT JOIN tasks t ON t.id=a.task_id AND t.owner_id=a.owner_id
+        WHERE a.owner_id=$1 ORDER BY a.created_at DESC,a.id DESC LIMIT 200`, [ownerId]);
+      return result.rows as { id:string; task_id:string; event:string; details:unknown; created_at:Date; action:string|null; destination:string|null }[];
     },
     async listRules(ownerId: string) {
-      return (await db.query('SELECT id,connection_id,action,constraints,revoked_at FROM trust_rules WHERE owner_id=$1 ORDER BY created_at DESC', [ownerId])).rows;
+      return (await db.query(`SELECT r.id,r.connection_id,r.action,r.constraints,r.revoked_at,r.created_at,c.display_name AS connection_name
+        FROM trust_rules r LEFT JOIN connections c ON c.id=r.connection_id AND c.owner_id=r.owner_id
+        WHERE r.owner_id=$1 ORDER BY r.created_at DESC`, [ownerId])).rows;
     },
     async revokeRule(ownerId: string, id: string) {
       const result = await db.query('UPDATE trust_rules SET revoked_at=now() WHERE owner_id=$1 AND id=$2 AND revoked_at IS NULL RETURNING id', [ownerId,id]);
