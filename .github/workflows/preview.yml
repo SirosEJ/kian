@@ -62,18 +62,26 @@ jobs:
           NEON_DATABASE: ${{ vars.NEON_DATABASE }}
           NEON_ROLE: ${{ vars.NEON_ROLE }}
         run: |
+          set -euo pipefail
           API="https://console.neon.tech/api/v2/projects/${NEON_PROJECT_ID}"
-          AUTH="Authorization: Bearer ${NEON_API_KEY}"
           NAME="${{ steps.preview.outputs.service }}"
-          BRANCH_ID="$(curl -fsS -H "$AUTH" "$API/branches?search=${NAME}" | jq -r --arg n "$NAME" '.branches[] | select(.name==$n) | .id' | head -n1)"
+          # Calls the Neon API; on a non-2xx answer, fail with Neon's own message instead of carrying on with empty values.
+          neon() {
+            local code
+            code="$(curl -sS -o /tmp/neon-response.json -w '%{http_code}' -X "$1" -H "Authorization: Bearer ${NEON_API_KEY}" -H 'Content-Type: application/json' ${3:+-d "$3"} "${API}$2")"
+            if [ "$code" -lt 200 ] || [ "$code" -ge 300 ]; then
+              echo "::error::Neon API $1 $2 returned HTTP ${code}: $(jq -r '.message // .' /tmp/neon-response.json)" >&2
+              exit 1
+            fi
+            cat /tmp/neon-response.json
+          }
+          BRANCH_ID="$(neon GET "/branches?search=${NAME}" | jq -r --arg n "$NAME" '[.branches[] | select(.name==$n) | .id][0] // empty')"
           if [ -z "$BRANCH_ID" ]; then
-            BRANCH_ID="$(curl -fsS -X POST -H "$AUTH" -H 'Content-Type: application/json' \
-              -d "{\"branch\":{\"name\":\"${NAME}\"},\"endpoints\":[{\"type\":\"read_write\"}]}" \
-              "$API/branches" | jq -r '.branch.id')"
+            BRANCH_ID="$(neon POST /branches "{\"branch\":{\"name\":\"${NAME}\"},\"endpoints\":[{\"type\":\"read_write\"}]}" | jq -r '.branch.id // empty')"
           fi
-          test -n "$BRANCH_ID" && test "$BRANCH_ID" != null
-          URI="$(curl -fsS -H "$AUTH" "$API/connection_uri?branch_id=${BRANCH_ID}&database_name=${NEON_DATABASE}&role_name=${NEON_ROLE}&pooled=false" | jq -r '.uri')"
-          test -n "$URI" && test "$URI" != null
+          [ -n "$BRANCH_ID" ] || { echo "::error::Neon returned no branch id for ${NAME}" >&2; exit 1; }
+          URI="$(neon GET "/connection_uri?branch_id=${BRANCH_ID}&database_name=${NEON_DATABASE}&role_name=${NEON_ROLE}&pooled=false" | jq -r '.uri // empty')"
+          [ -n "$URI" ] || { echo "::error::Neon returned no connection URI for ${NAME}" >&2; exit 1; }
           echo "::add-mask::$URI"
           echo "url=$URI" >> "$GITHUB_OUTPUT"
 
