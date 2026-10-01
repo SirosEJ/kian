@@ -10,7 +10,7 @@ Users create an account with email and password (Firebase Authentication) and la
 
 Settings → Account → Delete my account requires typing `DELETE`. `DELETE /account` (confirmation in body) then:
 
-1. Deletes the `users` row; foreign keys cascade to connections (encrypted tokens), OAuth states, instructions, tasks, trust rules, activity and executions.
+1. Deletes the `users` row; foreign keys cascade to connections (encrypted tokens), OAuth states, instructions, conversations and messages, tasks, trust rules, activity and executions.
 2. Deletes the Firebase user, ending sign-in. If this step fails the API returns 502; the user retries, which is safe because the data deletion is idempotent.
 
 Not undone: objects already created in Google Calendar, Jira or sent email. Provider-side application grants are not revoked automatically; the UI and privacy policy tell users they can remove Kian in their provider account.
@@ -19,7 +19,8 @@ Not undone: objects already created in Google Calendar, Jira or sent email. Prov
 
 | Data | Retention |
 |---|---|
-| Instructions, proposals, trust rules, execution receipts, activity | Until the user deletes the account |
+| Instructions, conversations (the user's messages and Kian's replies), proposals, trust rules, execution receipts, activity | Until the user deletes the account (owner decision, SFT-253). "New conversation" starts a fresh thread; older threads are kept, not deleted |
+| What the planning model receives | The last 20 messages of the current conversation, the user's undecided proposals, and connection names and types (never credentials or other users' data), sent to the model provider for each message; confirm the provider's retention terms |
 | Connection secrets | Until disconnect (cleared immediately) or account deletion |
 | Raw audio | Not stored by Kian. With live dictation the browser's own speech-recognition service hears the audio (in Chrome, audio is sent to Google; Safari uses Apple); where that is unavailable Kian sends the recording to its transcription provider. Confirm both retention settings and disclose them in the privacy policy |
 | Operational logs | No request bodies or decrypted secrets; retained per hosting log policy (proposed 30 days) |

@@ -1,8 +1,9 @@
 import { useLayoutEffect, useReducer, useRef, type KeyboardEvent } from 'react';
 import { MicButton } from '../recording/MicButton.js';
+import { sendFailure } from './planResult.js';
 import { canRecord, canSend, initialPrompt, promptReducer } from './promptState.js';
 
-const statusText = { idle: '', recording: 'Listening… press the stop button when you are done.', transcribing: 'Transcribing…', sending: 'Kian is preparing your tasks…' } as const;
+const statusText = { idle: '', recording: 'Listening… press the stop button when you are done.', transcribing: 'Transcribing…', sending: 'Kian is thinking…' } as const;
 
 function SendIcon() {
   return <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5M5 12l7-7 7 7" /></svg>;
@@ -28,7 +29,7 @@ export function PromptBox({ onSubmit, transcribe }: Props) {
     inFlight.current = true;
     dispatch({ type: 'send-start' });
     try { await onSubmit(state.text.trim()); dispatch({ type: 'send-ok' }); }
-    catch { dispatch({ type: 'send-failed', message: 'Could not prepare tasks. Your instruction is still here; check it and try again.' }); }
+    catch (error) { dispatch({ type: 'send-failed', message: sendFailure(error) }); }
     finally { inFlight.current = false; }
   }
 
@@ -45,7 +46,7 @@ export function PromptBox({ onSubmit, transcribe }: Props) {
   const busy = state.status === 'sending';
   return <div className="prompt">
     <div className="prompt-box">
-      <textarea ref={field} aria-label="Type an instruction" rows={2} value={state.text} disabled={busy} readOnly={state.status === 'recording'} placeholder="Ask Kian to create a Jira story, book a meeting or write an email" onChange={event => dispatch({ type: 'edit', text: event.target.value })} onKeyDown={onKeyDown} />
+      <textarea ref={field} aria-label="Type an instruction" rows={2} value={state.text} disabled={busy} readOnly={state.status === 'recording'} placeholder="Tell Kian what you need: a Jira story, a meeting, an email, or ask a question" onChange={event => dispatch({ type: 'edit', text: event.target.value })} onKeyDown={onKeyDown} />
       <div className="prompt-actions">
         <MicButton recording={state.status === 'recording'} disabled={!canRecord(state)} onStart={() => dispatch({ type: 'record-start' })} onLive={text => dispatch({ type: 'live', text })} onLiveEnd={() => dispatch({ type: 'live-end' })} onRecorded={blob => void recorded(blob)} onError={message => dispatch({ type: 'voice-failed', message })} />
         <button type="button" className="icon-button send" disabled={!canSend(state)} aria-label="Send instruction" title="Send (Enter)" onClick={() => void send()}>{busy ? <span className="spinner" aria-hidden="true" /> : <SendIcon />}</button>

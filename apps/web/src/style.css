@@ -114,5 +114,9 @@ article .actions{margin-top:var(--space-4)}
 
 /* Kian's reply */
 .assistant{margin:var(--space-4) 0;padding:var(--space-3) var(--space-4);background:var(--bg-surface);border:1px solid var(--border-default);border-left:4px solid var(--action-primary-bg);border-radius:var(--radius-md);box-shadow:var(--shadow-soft)}
+.thread{display:flex;flex-direction:column;gap:var(--space-2);margin:var(--space-4) 0;max-height:60vh;overflow-y:auto}
+.thread .assistant{margin:0}
+.user-message{align-self:flex-end;max-width:85%;padding:var(--space-2) var(--space-4);background:var(--status-info-bg);border:1px solid var(--border-default);border-radius:var(--radius-md)}
+.user-text{margin:0;white-space:pre-wrap;overflow-wrap:anywhere}
 .assistant-name{margin:0;color:var(--text-muted);font-size:var(--font-size-sm);font-weight:700}
 .assistant-text{margin:var(--space-1) 0 0;white-space:pre-wrap;overflow-wrap:anywhere}

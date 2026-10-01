@@ -25,7 +25,7 @@ describe('token-driven components', () => {
   });
 
   it('shows each task state as words in a coloured pill', () => {
-    const expected: Record<string, [string, string]> = { proposed: ['Needs review', 'info'], queued: ['Queued', 'warning'], succeeded: ['Done', 'success'], failed: ['Failed', 'error'], rejected: ['Rejected', 'neutral'], uncertain: ['Check needed', 'warning'] };
+    const expected: Record<string, [string, string]> = { proposed: ['Needs review', 'info'], queued: ['Queued', 'warning'], succeeded: ['Done', 'success'], failed: ['Failed', 'error'], rejected: ['Rejected', 'neutral'], uncertain: ['Check needed', 'warning'], replaced: ['Replaced', 'neutral'] };
     for (const [state, [label, tone]] of Object.entries(expected)) {
       const html = renderToString(<StatusBadge state={state} />);
       expect(html).toContain(`>${label}<`);

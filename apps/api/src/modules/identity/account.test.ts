@@ -7,6 +7,7 @@ import { registerAccountRoutes } from './account.js';
 async function setup(deleteIdentity = vi.fn(async () => {})) {
   const db = new PGlite();
   await db.exec(await readFile(new URL('../../../../../packages/db/migrations/001_core.sql', import.meta.url), 'utf8'));
+  await db.exec(await readFile(new URL('../../../../../packages/db/migrations/002_conversations.sql', import.meta.url), 'utf8'));
   await db.query("INSERT INTO users(id) VALUES ('alice'),('bob')");
   for (const owner of ['alice', 'bob']) {
     await db.query("INSERT INTO connections(id,owner_id,provider,display_name) VALUES ($1,$2,'ionos','Mailbox')", [`c-${owner}`, owner]);

@@ -17,3 +17,15 @@ describe('describePlanResult', () => {
     expect(describePlanResult({ reply: 42, tasks: [] }).reply).toBe('');
   });
 });
+
+describe('why a message could not be sent', () => {
+  const failed = (status: number, message: string) => Object.assign(new Error(message), { status });
+  it('shows a refusal that has its own explanation, and keeps everything else generic', async () => {
+    const { sendFailure } = await import('./planResult.js');
+    expect(sendFailure(failed(429, 'You are sending messages very quickly.'))).toBe('You are sending messages very quickly.');
+    expect(sendFailure(failed(409, 'Start a new conversation to continue.'))).toBe('Start a new conversation to continue.');
+    expect(sendFailure(failed(500, 'Request failed (500)'))).toMatch(/still here/);
+    expect(sendFailure(new Error('network'))).toMatch(/still here/);
+    expect(sendFailure(undefined)).toMatch(/still here/);
+  });
+});

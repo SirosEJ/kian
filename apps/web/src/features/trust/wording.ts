@@ -29,6 +29,7 @@ const eventLabels: Record<string, string> = {
   'task.rejected': 'Rejected by you',
   'task.edited': 'You edited the details, so any earlier approval no longer applies',
   'task.trusted': 'Started automatically because it matches a trusted action',
+  'task.replaced': 'Replaced by your later message in the conversation, so it was never approved or run',
   'task.succeeded': 'Done',
   'task.failed': 'Failed, nothing was changed',
   'task.uncertain': 'Outcome unknown: check the result yourself before trying again',

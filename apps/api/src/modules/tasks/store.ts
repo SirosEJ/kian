@@ -11,13 +11,18 @@ const providerOf = (action: string) => action.startsWith('calendar.') ? 'google_
  * Stores an instruction and its proposals in one transaction. A proposal starts as `queued` only when an active
  * trust rule of this owner matches it exactly; everything else starts as `proposed` and waits for the user.
  */
-export async function saveProposals(db: Queryable, ownerId: string, text: string, tasks: TaskProposal[]): Promise<TaskProposal[]> {
-  return transaction(db, async client => {
+export async function saveProposals(db: Queryable, ownerId: string, text: string, tasks: TaskProposal[], conversationId: string | null = null): Promise<TaskProposal[]> {
+  return transaction(db, client => saveProposalsIn(client, ownerId, text, tasks, conversationId));
+}
+
+/** The same, for a caller that already holds a transaction (the conversation service saves messages and proposals together). */
+export async function saveProposalsIn(client: Queryable, ownerId: string, text: string, tasks: TaskProposal[], conversationId: string | null = null): Promise<TaskProposal[]> {
+  {
     await client.query('INSERT INTO users (id) VALUES ($1) ON CONFLICT (id) DO NOTHING', [ownerId]);
     const rules = (await client.query('SELECT id,owner_id,connection_id,action,constraints,revoked_at FROM trust_rules WHERE owner_id=$1 AND revoked_at IS NULL', [ownerId])).rows
       .map(row => ({ id: row.id, ownerId: row.owner_id, connectionId: row.connection_id, action: row.action, destinations: row.constraints.destinations, revokedAt: row.revoked_at })) as TrustRule[];
     const instructionId = randomUUID();
-    await client.query('INSERT INTO instructions (id,owner_id,corrected_text) VALUES ($1,$2,$3)', [instructionId, ownerId, text]);
+    await client.query('INSERT INTO instructions (id,owner_id,corrected_text,conversation_id) VALUES ($1,$2,$3,$4)', [instructionId, ownerId, text, conversationId]);
     const connections = (await client.query('SELECT id,provider,settings FROM connections WHERE owner_id=$1 AND disconnected_at IS NULL', [ownerId])).rows;
     const result: TaskProposal[] = [];
     for (const original of tasks) {
@@ -32,5 +37,5 @@ export async function saveProposals(db: Queryable, ownerId: string, text: string
       result.push({ ...task, state } as unknown as TaskProposal);
     }
     return result;
-  });
+  }
 }
