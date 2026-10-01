@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { apiRequest } from '../api.js';
 import { Alert, Button, StatusBadge } from '../components/index.js';
-import { actionNames, trustPrompt, trustUnavailable } from '../features/trust/wording.js';
+import { actionNames, decisionError, trustPrompt, trustUnavailable } from '../features/trust/wording.js';
 
 export type ReviewTask = { id:string; action:string; version?:number; state:string; destination:string|null; connectionId?:string|null; parameters?:Record<string,unknown>; uncertainties:string[] };
 const labels:Record<string,string>={to:'Recipients',subject:'Subject',body:'Message',summary:'Title',description:'Description',start:'Start (date and time with offset)',end:'End (date and time with offset)',timeZone:'Time zone',eventId:'Event ID',issueTypeId:'Issue type ID',issueKey:'Issue key',fields:'Additional Jira fields',_jiraSiteUrl:'Jira site'};
@@ -18,7 +18,7 @@ export function TaskReview({ task, onChange }: { task:ReviewTask; onChange:(task
       const rule=trust && decision==='approve' && task.connectionId && task.destination ? {connectionId:task.connectionId,action:task.action,destinations:[task.destination]}:undefined;
       const updated=await apiRequest(`/tasks/${encodeURIComponent(task.id)}/decision`,'POST',{version:task.version || 1,decision,trust:rule});
       onChange({...task,version:updated.version,state:updated.state});
-    } catch {setError('Decision could not be saved. Refresh and review this task again.');} finally {setBusy(false);}
+    } catch(e) {setError(decisionError(e));} finally {setBusy(false);}
   }
   async function save() {
     setBusy(true);setError('');

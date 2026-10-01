@@ -7,6 +7,25 @@ import { evaluateTrust } from '../trust/policy.js';
 const failure = (statusCode: number, message: string) => Object.assign(new Error(message), { statusCode });
 export type StoredProposal = { connectionId: string | null; destination: string | null; fields: Record<string, unknown>; uncertainties: string[] };
 
+const blank = (value: unknown) => typeof value !== 'string' || !value.trim();
+/** The details a task cannot run without, in the words the user sees on screen. */
+export function missingDetails(action: string, fields: Record<string, unknown> | undefined): string[] {
+  const f = fields ?? {};
+  const missing: string[] = [];
+  if (action === 'email.send') {
+    if (!Array.isArray(f.to) || f.to.length === 0) missing.push('recipient');
+    if (blank(f.subject)) missing.push('subject');
+    if (blank(f.body)) missing.push('message');
+  } else if (action === 'calendar.create') {
+    if (blank(f.summary)) missing.push('title');
+    if (blank(f.start)) missing.push('start time');
+    if (blank(f.end)) missing.push('end time');
+  } else if (action === 'jira.create') {
+    if (blank(f.summary)) missing.push('title');
+  }
+  return missing;
+}
+
 export function createApprovalService(db: Queryable) {
   return {
     async decideTask(ownerId: string, taskId: string, version: number, decision: 'approve' | 'reject', optionalRule?: { connectionId:string; action:string; destinations:string[] }): Promise<Task> {
@@ -26,6 +45,13 @@ export function createApprovalService(db: Queryable) {
           !evaluateTrust(ownerId, { action, connectionId:parameters.connectionId, destination:parameters.destination, parameters:parameters.fields, uncertainties:parameters.uncertainties }, [{ id:'candidate', ownerId, ...optionalRule, revokedAt:null }]).allowed) throw failure(422, 'Trust scope must match this task');
         const connection = await db.query('SELECT id FROM connections WHERE owner_id=$1 AND id=$2 AND disconnected_at IS NULL', [ownerId,optionalRule.connectionId]);
         if (!connection.rows.length) throw failure(422, 'Connect a service before trusting it');
+      }
+      if (decision === 'approve') {
+        const row = (await db.query('SELECT action,parameters,version,state FROM tasks WHERE owner_id=$1 AND id=$2', [ownerId,taskId])).rows[0] as {action:string;parameters:StoredProposal;version:number;state:string} | undefined;
+        if (row && row.version === version && row.state === 'proposed') {
+          const missing = missingDetails(row.action, row.parameters.fields);
+          if (missing.length) throw failure(422, `Add the missing ${missing.join(' and ')} before approving.`);
+        }
       }
       const state = decision === 'approve' ? 'queued' : 'rejected';
       const result = await db.query('UPDATE tasks SET state=$4,version=version+1,parameters=parameters - \'trustRuleId\' WHERE owner_id=$1 AND id=$2 AND version=$3 AND state=$5 AND ( $4=$6 OR jsonb_array_length(COALESCE(parameters->\'uncertainties\',\'[]\'::jsonb))=0 ) RETURNING id,owner_id,action,state,parameters,version', [ownerId,taskId,version,state,'proposed','rejected']);

@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { activityTitle, eventLabel, ruleSentence, trustPrompt, trustUnavailable } from './wording.js';
+import { activityTitle, decisionError, eventLabel, ruleSentence, trustPrompt, trustUnavailable } from './wording.js';
 
 describe('trust and activity wording', () => {
   it('spells out exactly what trusting a task means, including how to undo it', () => {
@@ -36,4 +36,11 @@ describe('trust and activity wording', () => {
     expect(activityTitle('calendar.create', null)).toBe('Create calendar event');
     expect(activityTitle(null, null)).toBe('Task');
   });
+
+  it('shows the server\'s reason when an approval is refused, and a generic hint otherwise', () => {
+    expect(decisionError(Object.assign(new Error('Add the missing subject before approving.'), { status: 422 }))).toBe('Add the missing subject before approving.');
+    expect(decisionError(Object.assign(new Error('Request failed (409)'), { status: 409 }))).toMatch(/Refresh and review/);
+    expect(decisionError(new Error('network'))).toMatch(/Refresh and review/);
+  });
 });
+

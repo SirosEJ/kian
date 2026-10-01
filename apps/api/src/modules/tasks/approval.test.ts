@@ -7,7 +7,7 @@ async function setup() {
   const db = new PGlite();
   await db.exec(await readFile(new URL('../../../../../packages/db/migrations/001_core.sql', import.meta.url), 'utf8'));
   await db.query("INSERT INTO users(id) VALUES ('alice'),('bob')");
-  await db.query("INSERT INTO tasks(id,owner_id,action,state,parameters) VALUES ('a','alice','jira.create','proposed','{\"destination\":\"SFT\",\"connectionId\":\"jira-1\",\"fields\":{\"summary\":\"A\"},\"uncertainties\":[] }'),('b','alice','email.send','proposed','{\"destination\":\"x@example.com\",\"connectionId\":\"mail-1\",\"fields\":{\"to\":[\"x@example.com\"]},\"uncertainties\":[] }'),('c','bob','jira.create','proposed','{}')");
+  await db.query("INSERT INTO tasks(id,owner_id,action,state,parameters) VALUES ('a','alice','jira.create','proposed','{\"destination\":\"SFT\",\"connectionId\":\"jira-1\",\"fields\":{\"summary\":\"A\"},\"uncertainties\":[] }'),('b','alice','email.send','proposed','{\"destination\":\"x@example.com\",\"connectionId\":\"mail-1\",\"fields\":{\"to\":[\"x@example.com\"],\"subject\":\"Hi\",\"body\":\"Hello\"},\"uncertainties\":[] }'),('c','bob','jira.create','proposed','{}')");
   return { db, service: createApprovalService(db) };
 }
 
@@ -82,6 +82,24 @@ describe('transactions on a connection pool', () => {
     expect(rules[0]).toMatchObject({ id: 'r1', connection_name: 'Work mailbox', action: 'email.send', revoked_at: null });
     expect(rules[0].created_at).toBeTruthy();
     expect(await service.listRules('bob')).toEqual([]);
+    await db.close();
+  });
+
+  it('refuses to approve a task that is missing details it cannot run without', async () => {
+    const { db, service } = await setup();
+    await db.query("INSERT INTO tasks(id,owner_id,action,state,parameters) VALUES ('e1','alice','email.send','proposed',$1),('e2','alice','email.send','proposed',$2),('j1','alice','jira.create','proposed',$3),('c1','alice','calendar.create','proposed',$4)", [
+      JSON.stringify({ destination: 'x@example.com', connectionId: 'mail-1', fields: { to: ['x@example.com'], body: 'Hello' }, uncertainties: [] }),
+      JSON.stringify({ destination: 'x@example.com', connectionId: 'mail-1', fields: { to: ['x@example.com'], subject: 'Hi', body: 'Hello' }, uncertainties: [] }),
+      JSON.stringify({ destination: 'SFT', connectionId: 'jira-1', fields: { description: 'no title' }, uncertainties: [] }),
+      JSON.stringify({ destination: 'primary', connectionId: 'cal', fields: { summary: 'Lunch', start: '2026-10-02T12:00:00+01:00' }, uncertainties: [] }),
+    ]);
+    await expect(service.decideTask('alice', 'e1', 1, 'approve')).rejects.toMatchObject({ statusCode: 422, message: expect.stringContaining('subject') });
+    await expect(service.decideTask('alice', 'j1', 1, 'approve')).rejects.toMatchObject({ statusCode: 422, message: expect.stringContaining('title') });
+    await expect(service.decideTask('alice', 'c1', 1, 'approve')).rejects.toMatchObject({ statusCode: 422, message: expect.stringContaining('end') });
+    expect((await db.query<{ state: string }>("SELECT state FROM tasks WHERE id='e1'")).rows[0].state).toBe('proposed');
+    expect((await service.decideTask('alice', 'e2', 1, 'approve')).state).toBe('queued');
+    // Rejecting never needs complete details.
+    expect((await service.decideTask('alice', 'e1', 1, 'reject')).state).toBe('rejected');
     await db.close();
   });
 });

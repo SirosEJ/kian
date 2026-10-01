@@ -41,3 +41,9 @@ export function activityTitle(action?: string | null, destination?: string | nul
   const name = action ? (actionNames[action] ?? action) : 'Task';
   return destination ? `${name} to ${destination}` : name;
 }
+
+/** What to tell the user when saving a decision failed: the server's own reason for a refusal (422), otherwise a generic hint. */
+export function decisionError(error: unknown): string {
+  const failure = error as { status?: number; message?: string };
+  return failure.status === 422 && failure.message ? failure.message : 'Decision could not be saved. Refresh and review this task again.';
+}
