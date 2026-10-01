@@ -31,7 +31,7 @@ export function MailboxStatus({ id, settings, onUpdated }: { id: string; setting
     <p>Mailbox: {settings.mailbox}{settings.host ? ` (${settings.host})` : ''}</p>
     <Button variant="secondary" disabled={busy} onClick={() => void test()}>Test connection</Button>
     <Button variant="ghost" disabled={busy} onClick={() => setUpdating(!updating)}>Update password</Button>
-    {updating && <form onSubmit={event => void update(event)}><label>New mailbox password<input type="password" autoComplete="off" required value={password} onChange={event => setPassword(event.target.value)} /></label><Button disabled={busy}>Verify and save</Button></form>}
+    {updating && <form onSubmit={event => void update(event)}><label>New mailbox password<input type="password" autoComplete="off" required value={password} onChange={event => setPassword(event.target.value)} /></label><Button type="submit" disabled={busy}>Verify and save</Button></form>}
     {status && <Alert tone="success">{status}</Alert>}{error && <Alert tone="error">{error}</Alert>}
   </div>;
 }

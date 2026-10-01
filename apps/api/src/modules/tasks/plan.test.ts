@@ -71,5 +71,18 @@ describe('instruction planning', () => {
     expect(PLANNER_INSTRUCTIONS).toMatch(/leave .*recipient.* empty|empty array/i);
     expect(PLANNER_INSTRUCTIONS).toMatch(/question/i);
   });
+
+  it('asks when an email has no subject or no message instead of proposing it half empty', async () => {
+    const noSubject = { action: 'email.send', connectionId: null, destination: 'sam@example.com', parameters: { to: ['sam@example.com'], body: 'Hello' }, uncertainties: [] };
+    const blankBoth = { ...noSubject, parameters: { to: ['sam@example.com'], subject: '   ', body: '' } };
+    const [first, second] = await createPlanner(async () => [noSubject, blankBoth])('alice', 'Email sam@example.com Hello', 'en-GB', 'Europe/London');
+    expect(first.uncertainties).toEqual(['What subject should this email have?']);
+    expect(second.uncertainties).toEqual(['What subject should this email have?', 'What should the email say?']);
+  });
+
+  it('tells the model to write a short subject when the user gives none', () => {
+    expect(PLANNER_INSTRUCTIONS).toMatch(/subject/i);
+    expect(PLANNER_INSTRUCTIONS).toMatch(/short.*subject|subject.*short/i);
+  });
 });
 

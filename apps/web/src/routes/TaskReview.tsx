@@ -1,10 +1,10 @@
 import { useEffect, useState } from 'react';
 import { apiRequest } from '../api.js';
 import { Alert, Button, StatusBadge } from '../components/index.js';
+import { actionNames, decisionError, trustPrompt, trustUnavailable } from '../features/trust/wording.js';
 
 export type ReviewTask = { id:string; action:string; version?:number; state:string; destination:string|null; connectionId?:string|null; parameters?:Record<string,unknown>; uncertainties:string[] };
 const labels:Record<string,string>={to:'Recipients',subject:'Subject',body:'Message',summary:'Title',description:'Description',start:'Start (date and time with offset)',end:'End (date and time with offset)',timeZone:'Time zone',eventId:'Event ID',issueTypeId:'Issue type ID',issueKey:'Issue key',fields:'Additional Jira fields',_jiraSiteUrl:'Jira site'};
-const actionNames:Record<string,string>={'email.send':'Send email','calendar.create':'Create calendar event','calendar.update':'Update calendar event','jira.create':'Create Jira issue','jira.update':'Update Jira issue'};
 function printable(value:unknown):string {return Array.isArray(value) ? value.join(', ') : typeof value==='object' && value!==null ? JSON.stringify(value,null,2):String(value ?? '');}
 export function TaskReview({ task, onChange }: { task:ReviewTask; onChange:(task:ReviewTask)=>void }) {
   const [trust,setTrust]=useState(false),[editing,setEditing]=useState(false),[destination,setDestination]=useState(task.destination || ''),[connectionId,setConnectionId]=useState(task.connectionId || '');
@@ -18,7 +18,7 @@ export function TaskReview({ task, onChange }: { task:ReviewTask; onChange:(task
       const rule=trust && decision==='approve' && task.connectionId && task.destination ? {connectionId:task.connectionId,action:task.action,destinations:[task.destination]}:undefined;
       const updated=await apiRequest(`/tasks/${encodeURIComponent(task.id)}/decision`,'POST',{version:task.version || 1,decision,trust:rule});
       onChange({...task,version:updated.version,state:updated.state});
-    } catch {setError('Decision could not be saved. Refresh and review this task again.');} finally {setBusy(false);}
+    } catch(e) {setError(decisionError(e));} finally {setBusy(false);}
   }
   async function save() {
     setBusy(true);setError('');
@@ -38,6 +38,6 @@ export function TaskReview({ task, onChange }: { task:ReviewTask; onChange:(task
     {fieldKeys.map(key=><label key={key}>{labels[key] || key}{key==='fields' ? <textarea defaultValue={printable(fields[key])} onBlur={e=>{try {const value=JSON.parse(e.target.value);setFields(current=>({...current,fields:value}));setError('');} catch {setError('Additional Jira fields must contain valid JSON.');}}}/> : ['body','description'].includes(key) ? <textarea value={printable(fields[key])} onChange={e=>changeField(key,e.target.value)}/> : <input value={printable(fields[key])} onChange={e=>changeField(key,e.target.value)}/>}</label>)}
     <p>Review every detail before saving. Saving confirms that the questions below have been resolved.</p>{task.uncertainties.map(u=><p key={u}>{u}</p>)}<div className="actions"><Button disabled={busy || !!error} onClick={()=>void save()}>Save changes</Button><Button variant="ghost" onClick={()=>setEditing(false)}>Cancel</Button></div>
     </> : <><p>{task.destination || 'Choose a destination in Edit'}</p><dl>{Object.entries(task.parameters || {}).filter(([key])=>key!=='_jiraSiteId').map(([key,value])=><div key={key}><dt>{labels[key] || key}</dt><dd>{printable(value)}</dd></div>)}</dl>{task.uncertainties.map(u=><Alert key={u} tone="warning">{u}</Alert>)}</>}
-    {task.state==='proposed' && !editing && <><div className="actions"><Button variant="ghost" onClick={()=>{setFields(task.parameters || {});setConnectionId(task.connectionId || '');setDestination(task.destination || '');setError('');setEditing(true);}}>Edit</Button><Button disabled={busy || task.uncertainties.length>0 || !task.connectionId || !task.destination} onClick={()=>void decide('approve')}>Approve</Button><Button variant="secondary" disabled={busy} onClick={()=>void decide('reject')}>Reject</Button></div><label className="checkbox"><input type="checkbox" disabled={!task.connectionId || !task.destination || task.action.endsWith('.update')} checked={trust} onChange={e=>setTrust(e.target.checked)}/>Trust and automate this task in future for this connection and destination</label></>}{error && <Alert tone="error">{error}</Alert>}
+    {task.state==='proposed' && !editing && <><div className="actions"><Button variant="ghost" onClick={()=>{setFields(task.parameters || {});setConnectionId(task.connectionId || '');setDestination(task.destination || '');setError('');setEditing(true);}}>Edit</Button><Button disabled={busy || task.uncertainties.length>0 || !task.connectionId || !task.destination} onClick={()=>void decide('approve')}>Approve</Button><Button variant="secondary" disabled={busy} onClick={()=>void decide('reject')}>Reject</Button></div>{trustUnavailable(task.action) ? <p className="muted">{trustUnavailable(task.action)}</p> : <label className="checkbox"><input type="checkbox" disabled={!task.connectionId || !task.destination || task.action.endsWith('.update')} checked={trust} onChange={e=>setTrust(e.target.checked)}/>{task.destination ? trustPrompt(task.action,task.destination,connections.find(c=>c.id===task.connectionId)?.display_name) : 'Choose a destination before trusting this task.'}</label>}</>}{error && <Alert tone="error">{error}</Alert>}
   </article>;
 }
