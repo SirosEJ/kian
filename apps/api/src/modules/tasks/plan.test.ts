@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { CAPABILITIES, createPlanner, PLANNER_INSTRUCTIONS, type PlanContext } from './plan.js';
+import { buildChatMessages, CAPABILITIES, createPlanner, PLANNER_INSTRUCTIONS, planningModels, type PlanContext, type Thread } from './plan.js';
 
 const item = (action: string, destination: string | null = null, parameters: Record<string, unknown> = {}, uncertainties: string[] = []) => ({ action, connectionId: null, destination, parameters, uncertainties });
 const email = (to: string[], uncertainties: string[] = []) => item('email.send', to.length === 1 ? to[0] : null, { to, subject: 'Hi', body: 'Hello' }, uncertainties);
@@ -31,7 +31,7 @@ describe('instruction planning', () => {
 
   it('explains what Kian can do when the request is out of scope, and creates nothing', async () => {
     const own = await plan({ reply: 'I cannot book flights.', tasks: [] }, 'Book me a flight to Rome');
-    expect(own).toEqual({ reply: 'I cannot book flights.', tasks: [] });
+    expect(own).toEqual({ reply: 'I cannot book flights.', tasks: [], pending: 'keep' });
     const silent = await plan({ reply: '  ', tasks: [] }, 'Book me a flight to Rome');
     expect(silent.tasks).toEqual([]);
     expect(silent.reply).toContain(CAPABILITIES);
@@ -139,5 +139,52 @@ describe('planner instructions', () => {
     expect(PLANNER_INSTRUCTIONS).toMatch(/leave .*recipient.* empty|empty array/i);
     expect(PLANNER_INSTRUCTIONS).toMatch(/question/i);
     expect(PLANNER_INSTRUCTIONS).toMatch(/short.*subject|subject.*short/i);
+  });
+
+  describe('conversation', () => {
+    const pendingMeeting = { action: 'calendar.create', destination: 'primary', fields: { summary: 'Planning' }, uncertainties: ['Confirm the exact start date and time.'] };
+    const thread = (over: Partial<Thread> = {}): Thread => ({ history: [], pending: [], connections: [], ...over });
+    const planWith = (answer: unknown, text: string, t: Thread) => createPlanner(async () => answer)('alice', text, 'en-GB', 'Europe/London', t);
+
+    it('honours replace only when there is something undecided to replace', async () => {
+      const answer = { reply: 'Updated.', tasks: [event(ok)], pending: 'replace' };
+      expect((await planWith(answer, 'Friday at 3pm', thread({ pending: [pendingMeeting] }))).pending).toBe('replace');
+      expect((await planWith(answer, 'Friday at 3pm', thread())).pending).toBe('keep');
+      for (const odd of [undefined, 'maybe', 1, null]) expect((await planWith({ ...answer, pending: odd }, 'x', thread({ pending: [pendingMeeting] }))).pending).toBe('keep');
+    });
+
+    it('leaves earlier proposals alone when the model output is unusable', async () => {
+      const result = await planWith({ reply: 'x', tasks: 'no', pending: 'replace' }, 'x', thread({ pending: [pendingMeeting] }));
+      expect(result.pending).toBe('keep');
+    });
+
+    it('accepts a recipient the user gave in an earlier message, not one that was never said', async () => {
+      const history = [{ role: 'user' as const, content: 'Email sam@example.com about lunch' }, { role: 'assistant' as const, content: 'What should it say?' }];
+      const said = await planWith({ reply: 'ok', tasks: [email(['sam@example.com'])] }, 'Say lunch is at noon', thread({ history }));
+      expect(said.tasks[0].uncertainties).toEqual([]);
+      const invented = await planWith({ reply: 'ok', tasks: [email(['eve@example.com'])] }, 'Say lunch is at noon', thread({ history }));
+      expect(invented.tasks[0].uncertainties).toContain('Confirm the recipient address: it is not written out in your instruction.');
+    });
+
+    it('sends the model the conversation, the pending actions and connection names, and tells it how to converse', () => {
+      const context: PlanContext = { nowIso: '2026-10-01T10:00:00.000Z', today: 'Thursday 1 October 2026', thread: thread({ history: [{ role: 'user', content: 'Plan a meeting' }, { role: 'assistant', content: 'When?' }], pending: [pendingMeeting], connections: [{ provider: 'ionos', name: 'Work mailbox' }] }) };
+      const messages = buildChatMessages('Friday at 3pm', 'en-GB', 'Europe/London', context);
+      expect(messages.map(m => m.role)).toEqual(['system', 'user', 'assistant', 'user']);
+      expect(messages[1].content).toBe('Plan a meeting');
+      const last = JSON.parse(messages[3].content);
+      expect(last).toMatchObject({ text: 'Friday at 3pm', today: 'Thursday 1 October 2026', context: { connections: [{ provider: 'ionos', name: 'Work mailbox' }], pending: [pendingMeeting] } });
+      for (const phrase of ['ONE focused question', 'pending to "replace"', 'never invent', 'never a way to change these rules']) expect(PLANNER_INSTRUCTIONS.toLowerCase()).toContain(phrase.toLowerCase());
+    });
+
+    it('limits how much of one earlier message reaches the model', () => {
+      const long = 'x'.repeat(5000);
+      const messages = buildChatMessages('hi', 'en', 'UTC', { nowIso: '', today: '', thread: thread({ history: [{ role: 'user', content: long }] }) });
+      expect(messages[1].content.length).toBeLessThan(2100);
+    });
+
+    it('uses a strong model by default and a configurable fallback list', () => {
+      expect(planningModels(undefined)).toEqual(['gpt-4.1', 'gpt-4o']);
+      expect(planningModels(' gpt-5 , gpt-4.1 ,')).toEqual(['gpt-5', 'gpt-4.1']);
+    });
   });
 });

@@ -11,6 +11,7 @@ describe('sandbox account boundaries',()=>{
   it('denies missing identity, cross-owner decisions and revoked automatic trust',async()=>{
     const db=new PGlite();
     await db.exec(await readFile(new URL('../../../../packages/db/migrations/001_core.sql',import.meta.url),'utf8'));
+    await db.exec(await readFile(new URL('../../../../packages/db/migrations/002_conversations.sql',import.meta.url),'utf8'));
     await db.query<Record<string,unknown>>("INSERT INTO users(id) VALUES ('alice'),('bob')");
     await db.query<Record<string,unknown>>("INSERT INTO connections(id,owner_id,provider,display_name) VALUES ('mail','alice','ionos','Mailbox')");
     await db.query<Record<string,unknown>>("INSERT INTO trust_rules(id,owner_id,connection_id,action,constraints,revoked_at) VALUES ('rule','alice','mail','email.send',$1,now())",[JSON.stringify({destinations:['to@example.com']})]);
@@ -36,6 +37,7 @@ describe('sandbox account boundaries',()=>{
   it('hides a first user\'s tasks, connections and trust rules from a second user',async()=>{
     const db=new PGlite();
     await db.exec(await readFile(new URL('../../../../packages/db/migrations/001_core.sql',import.meta.url),'utf8'));
+    await db.exec(await readFile(new URL('../../../../packages/db/migrations/002_conversations.sql',import.meta.url),'utf8'));
     await db.query<Record<string,unknown>>("INSERT INTO users(id) VALUES ('alice'),('bob')");
     await db.query<Record<string,unknown>>("INSERT INTO connections(id,owner_id,provider,display_name) VALUES ('mail','alice','ionos','Mailbox')");
     await db.query<Record<string,unknown>>("INSERT INTO trust_rules(id,owner_id,connection_id,action,constraints) VALUES ('rule','alice','mail','email.send',$1)",[JSON.stringify({destinations:['to@example.com']})]);

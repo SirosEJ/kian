@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import Fastify from 'fastify';
 import { registerTaskRoutes } from './routes.js';
+import { ConversationError } from '../conversations/service.js';
 
 describe('task intake routes', () => {
   const auth = async () => 'alice';
@@ -53,5 +54,36 @@ describe('task intake routes', () => {
     expect(saved).toEqual([[]]);
     await app.close();
   });
-});
 
+  it('sends a message into a saved conversation and returns the conversation id with Kian\'s reply', async () => {
+    const seen: unknown[] = [];
+    const app = Fastify();
+    registerTaskRoutes(app, { authenticate: auth, plan: async () => ({ reply: '', tasks: [] }), save: async () => {}, converse: async (owner, input) => { seen.push({ owner, ...input }); return { conversationId: 'c1', reply: 'When?', tasks: [] }; } });
+    const response = await app.inject({ method: 'POST', url: '/instructions', payload: { text: 'Plan a meeting', conversationId: 'c1', locale: 'en-GB', timeZone: 'Europe/London' } });
+    expect(response.statusCode).toBe(201);
+    expect(response.json()).toEqual({ conversationId: 'c1', reply: 'When?', tasks: [] });
+    expect(seen).toEqual([{ owner: 'alice', text: 'Plan a meeting', conversationId: 'c1', locale: 'en-GB', timeZone: 'Europe/London' }]);
+    expect((await app.inject({ method: 'POST', url: '/instructions', payload: { text: 'x', conversationId: 5 } })).statusCode).toBe(400);
+    await app.close();
+  });
+
+  it('turns conversation limits and ownership errors into clear responses, and other failures stay errors', async () => {
+    const app = Fastify();
+    let error: Error = new ConversationError(429, 'Slow down.');
+    registerTaskRoutes(app, { authenticate: auth, plan: async () => ({ reply: '', tasks: [] }), save: async () => {}, converse: async () => { throw error; } });
+    const limited = await app.inject({ method: 'POST', url: '/instructions', payload: { text: 'x' } });
+    expect([limited.statusCode, limited.json()]).toEqual([429, { error: 'Slow down.' }]);
+    error = new Error('model down');
+    expect((await app.inject({ method: 'POST', url: '/instructions', payload: { text: 'x' } })).statusCode).toBe(500);
+    await app.close();
+  });
+
+  it('returns the latest conversation of the signed-in user and can start a new one', async () => {
+    const app = Fastify();
+    registerTaskRoutes(app, { authenticate: auth, plan: async () => ({ reply: '', tasks: [] }), save: async () => {}, conversations: { latest: async owner => ({ conversationId: `c-${owner}`, messages: [] }), create: async owner => `new-${owner}` } });
+    expect((await app.inject({ method: 'GET', url: '/conversations/latest' })).json()).toEqual({ conversationId: 'c-alice', messages: [] });
+    const created = await app.inject({ method: 'POST', url: '/conversations' });
+    expect([created.statusCode, created.json()]).toEqual([201, { conversationId: 'new-alice' }]);
+    await app.close();
+  });
+});

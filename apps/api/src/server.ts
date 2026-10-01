@@ -6,6 +6,7 @@ import { KianRepository, type Task } from '@kian/db';
 import { createRequireUser, requireUser, type VerifyToken } from './modules/identity/session.js';
 import { planInstruction } from './modules/tasks/plan.js';
 import { registerTaskRoutes, type TaskRoutes } from './modules/tasks/routes.js';
+import { createConversationService } from './modules/conversations/service.js';
 import { saveProposals } from './modules/tasks/store.js';
 import { registerDecisionRoutes } from './modules/tasks/activity.js';
 import { registerConnectionRoutes } from './modules/connections/routes.js';
@@ -55,11 +56,16 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     return task;
   });
   if (options.taskRoutes) registerTaskRoutes(app, options.taskRoutes);
-  else if (pool) registerTaskRoutes(app, {
-    authenticate,
-    plan: planInstruction,
-    save: (ownerId, text, tasks) => saveProposals(pool, ownerId, text, tasks),
-  });
+  else if (pool) {
+    const conversations = createConversationService(pool, planInstruction);
+    registerTaskRoutes(app, {
+      authenticate,
+      plan: planInstruction,
+      save: (ownerId, text, tasks) => saveProposals(pool, ownerId, text, tasks),
+      converse: conversations.converse,
+      conversations,
+    });
+  }
   if (pool) registerAccountRoutes(app,pool,authenticate);
   if (pool) registerDecisionRoutes(app, pool, authenticate,runner ? (owner,id)=>runner.run(owner,id):undefined);
   if (pool && process.env.KIAN_ENCRYPTION_KEY) registerConnectionRoutes(app,pool,authenticate,{clientId:process.env.GOOGLE_CLIENT_ID || '',clientSecret:process.env.GOOGLE_CLIENT_SECRET || '',redirectUri:process.env.GOOGLE_REDIRECT_URI || '',encryptionKey:Buffer.from(process.env.KIAN_ENCRYPTION_KEY,'base64')});

@@ -6,6 +6,7 @@ import { createApprovalService } from './approval.js';
 async function setup() {
   const db = new PGlite();
   await db.exec(await readFile(new URL('../../../../../packages/db/migrations/001_core.sql', import.meta.url), 'utf8'));
+  await db.exec(await readFile(new URL('../../../../../packages/db/migrations/002_conversations.sql', import.meta.url), 'utf8'));
   await db.query("INSERT INTO users(id) VALUES ('alice'),('bob')");
   await db.query("INSERT INTO tasks(id,owner_id,action,state,parameters) VALUES ('a','alice','jira.create','proposed','{\"destination\":\"SFT\",\"connectionId\":\"jira-1\",\"fields\":{\"summary\":\"A\"},\"uncertainties\":[] }'),('b','alice','email.send','proposed','{\"destination\":\"x@example.com\",\"connectionId\":\"mail-1\",\"fields\":{\"to\":[\"x@example.com\"],\"subject\":\"Hi\",\"body\":\"Hello\"},\"uncertainties\":[] }'),('c','bob','jira.create','proposed','{}')");
   return { db, service: createApprovalService(db) };

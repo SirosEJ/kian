@@ -2,11 +2,15 @@ import type { FastifyInstance } from 'fastify';
 import type { TaskProposal } from '@kian/contracts';
 import type { PlanResult } from './plan.js';
 import OpenAI, { toFile } from 'openai';
+import { ConversationError, type Converse, type StoredMessage } from '../conversations/service.js';
 
 export type TaskRoutes = {
   authenticate: (request: { headers: { authorization?: string } }) => Promise<string>;
-  plan: (ownerId: string, text: string, locale: string, timeZone: string) => Promise<PlanResult>;
+  plan: (ownerId: string, text: string, locale: string, timeZone: string) => Promise<Omit<PlanResult, 'pending'> & Partial<Pick<PlanResult, 'pending'>>>;
   save: (ownerId: string, text: string, tasks: TaskProposal[]) => Promise<TaskProposal[] | void>;
+  /** When set, messages are part of a saved conversation (plan and save are then handled by it). */
+  converse?: Converse;
+  conversations?: { latest: (ownerId: string) => Promise<{ conversationId: string | null; messages: StoredMessage[] }>; create: (ownerId: string) => Promise<string> };
   transcribe?: (audio: Buffer, mimeType: string) => Promise<string>;
 };
 
@@ -18,13 +22,31 @@ async function defaultTranscribe(audio: Buffer, mimeType: string): Promise<strin
 }
 
 export function registerTaskRoutes(app: FastifyInstance, deps: TaskRoutes) {
-  app.post<{Body:{text?:string;locale?:string;timeZone?:string}}>('/instructions', async (request, reply) => {
+  app.post<{Body:{text?:string;locale?:string;timeZone?:string;conversationId?:unknown}}>('/instructions', async (request, reply) => {
     const ownerId = await deps.authenticate(request);
     const text = request.body?.text?.trim();
     if (!text || text.length > 10000) return reply.code(400).send({ error: 'Instruction text must be 1–10000 characters' });
-    const { reply: assistantReply, tasks } = await deps.plan(ownerId, text, request.body.locale || 'en-GB', request.body.timeZone || 'UTC');
+    const locale = request.body.locale || 'en-GB', timeZone = request.body.timeZone || 'UTC';
+    if (deps.converse) {
+      const conversationId = request.body.conversationId;
+      if (conversationId !== undefined && typeof conversationId !== 'string') return reply.code(400).send({ error: 'Invalid conversation' });
+      try { return reply.code(201).send(await deps.converse(ownerId, { text, conversationId, locale, timeZone })); }
+      catch (error) { if (error instanceof ConversationError) return reply.code(error.statusCode).send({ error: error.message }); throw error; }
+    }
+    const { reply: assistantReply, tasks } = await deps.plan(ownerId, text, locale, timeZone);
     const saved = await deps.save(ownerId, text, tasks);
     return reply.code(201).send({ reply: assistantReply, tasks: saved || tasks });
+  });
+
+  app.get('/conversations/latest', async (request, reply) => {
+    const ownerId = await deps.authenticate(request);
+    if (!deps.conversations) return reply.code(404).send({ error: 'Conversations unavailable' });
+    return deps.conversations.latest(ownerId);
+  });
+  app.post('/conversations', async (request, reply) => {
+    const ownerId = await deps.authenticate(request);
+    if (!deps.conversations) return reply.code(404).send({ error: 'Conversations unavailable' });
+    return reply.code(201).send({ conversationId: await deps.conversations.create(ownerId) });
   });
 
   app.post<{Body:{audioBase64?:string;mimeType?:string}}>('/transcriptions', { bodyLimit: 16 * 1024 * 1024 }, async (request, reply) => {

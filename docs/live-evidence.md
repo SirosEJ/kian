@@ -49,3 +49,22 @@ Use the real planning model on a preview or staging.
 | Task cards show "Using <mailbox name>" | pending | |
 | Dictation in Safari | pending | |
 
+## SFT-253: conversational assistant
+
+Use the real planning model on the story preview. Model: `KIAN_PLANNING_MODEL` is a comma separated list tried in order (default `gpt-4.1,gpt-4o`); record which model answered if you change it.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| "Hi, what can you do?": a warm answer listing calendar, Jira and email, no tasks | pending | |
+| "Set up a meeting with Sam": Kian asks one question (day/time); reply "Friday at 3pm": one proposal with the exact time, and no duplicate left behind | pending | |
+| After that, "actually make it Saturday": the old card disappears from Home and shows as Replaced in Activity; one card remains | pending | |
+| "Email <A> about lunch" then "send it to <B> instead": one email card to B only | pending | |
+| "Forget it" cancels the undecided cards (Replaced in Activity) | pending | |
+| "Which mailbox am I connected to?" is answered from the real connections; "what tasks are waiting?" matches Home | pending | |
+| Approve a card, then say "change it": the approved task is untouched | pending | |
+| Reload the page: the conversation is still there; New conversation clears it; the old one is not shown | pending | |
+| Dictate (Chrome) a follow-up answer: it appears in the same thread | pending | |
+| Phone width (390px): thread, prompt and cards readable, no sideways scrolling | pending | |
+| A second account never sees this thread | pending | |
+| Not included: the reply appears when complete (no word-by-word streaming) | n/a | |
+

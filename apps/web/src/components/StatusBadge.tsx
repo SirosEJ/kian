@@ -1,4 +1,4 @@
-export type TaskState = 'proposed' | 'approved' | 'queued' | 'executing' | 'succeeded' | 'failed' | 'rejected' | 'uncertain';
+export type TaskState = 'proposed' | 'approved' | 'queued' | 'executing' | 'succeeded' | 'failed' | 'rejected' | 'uncertain' | 'replaced';
 type Tone = 'info' | 'warning' | 'success' | 'error' | 'neutral';
 
 const states: Record<TaskState, { label: string; tone: Tone }> = {
@@ -10,6 +10,7 @@ const states: Record<TaskState, { label: string; tone: Tone }> = {
   failed: { label: 'Failed', tone: 'error' },
   rejected: { label: 'Rejected', tone: 'neutral' },
   uncertain: { label: 'Check needed', tone: 'warning' },
+  replaced: { label: 'Replaced', tone: 'neutral' },
 };
 
 /** A small pill showing where a task is. The words carry the meaning; the colour only reinforces it. */
