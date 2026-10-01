@@ -8,7 +8,7 @@ Record only checks that actually passed, with date, commit, browser, URL, operat
 | --- | --- | --- |
 | Mailbox connect with valid credentials | passed | 2026-09-30, Chrome, https://kian-sft-236-ayligdccta-ew.a.run.app, smtp.ionos.co.uk, SJ |
 | Wrong password shows an auth-specific message | pending | |
-| Test connection reports connected | pending | |
+| Test connection reports connected | passed | 2026-10-01 13:30, Chrome, SFT-228 preview (mailbox saved after the submit-button fix), SJ |
 | Update password verifies before saving | pending | |
 | Typed instruction proposes exact recipients, subject, body | passed | 2026-09-30, SJ: recipient, subject and message shown for review |
 | Approved send reaches controlled recipient (Message-ID) | passed, landed in Gmail Spam | 2026-09-30 22:49 and 22:50, SJ. Sent with the earlier @kian.local Message-ID; Message-ID value not yet recorded |
