@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from 'react';
 import { apiRequest } from '../api.js';
+import { Alert, Button } from '../components/index.js';
 
 export function MailboxStatus({ id, settings, onUpdated }: { id: string; settings: { mailbox?: string; host?: string }; onUpdated: () => Promise<void> }) {
   const [status, setStatus] = useState('');
@@ -28,9 +29,9 @@ export function MailboxStatus({ id, settings, onUpdated }: { id: string; setting
 
   return <div>
     <p>Mailbox: {settings.mailbox}{settings.host ? ` (${settings.host})` : ''}</p>
-    <button disabled={busy} onClick={() => void test()}>Test connection</button>
-    <button disabled={busy} onClick={() => setUpdating(!updating)}>Update password</button>
-    {updating && <form onSubmit={event => void update(event)}><label>New mailbox password<input type="password" autoComplete="off" required value={password} onChange={event => setPassword(event.target.value)} /></label><button disabled={busy}>Verify and save</button></form>}
-    {status && <p role="status">{status}</p>}{error && <p role="alert">{error}</p>}
+    <Button variant="secondary" disabled={busy} onClick={() => void test()}>Test connection</Button>
+    <Button variant="ghost" disabled={busy} onClick={() => setUpdating(!updating)}>Update password</Button>
+    {updating && <form onSubmit={event => void update(event)}><label>New mailbox password<input type="password" autoComplete="off" required value={password} onChange={event => setPassword(event.target.value)} /></label><Button disabled={busy}>Verify and save</Button></form>}
+    {status && <Alert tone="success">{status}</Alert>}{error && <Alert tone="error">{error}</Alert>}
   </div>;
 }

@@ -1,5 +1,5 @@
 import { tokens, cssVar } from '../theme/index.js';
-import { Alert, Button, Card, Logo } from './index.js';
+import { Alert, Button, Card, Logo, StatusBadge } from './index.js';
 
 const hidden = new Set(['navy-950', 'navy-700', 'cyan-300', 'ice-100']);
 
@@ -30,6 +30,9 @@ export function Gallery() {
     <label>Email address<input type="email" placeholder="you@example.com" /></label>
     <label>Instruction<textarea rows={3} placeholder="Ask Kian to create a Jira story" /></label>
     <label>Calendar<select defaultValue=""><option value="">Select a calendar</option><option>Personal</option></select></label>
+
+    <h2>Task status</h2>
+    <p>{['proposed', 'queued', 'succeeded', 'failed', 'rejected', 'uncertain'].map(state => <span key={state}><StatusBadge state={state} />{' '}</span>)}</p>
 
     <h2>Messages</h2>
     <Alert tone="success">Connected. The mailbox accepted the test.</Alert>
