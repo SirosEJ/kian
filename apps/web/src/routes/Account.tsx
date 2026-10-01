@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { apiRequest } from '../api.js';
 
-export function Account({ onDeleted }: { onDeleted: () => void }) {
+export function Account({ email, onDeleted }: { email?: string | null; onDeleted: () => void }) {
   const [open, setOpen] = useState(false);
   const [typed, setTyped] = useState('');
   const [error, setError] = useState('');
@@ -13,7 +13,7 @@ export function Account({ onDeleted }: { onDeleted: () => void }) {
     catch { setError('Could not finish deleting the account. Please try again.'); setBusy(false); }
   }
 
-  return <section><h2>Account</h2>
+  return <section><h2>Account</h2>{email && <p>Signed in as <strong>{email}</strong></p>}
     {!open ? <button onClick={() => setOpen(true)}>Delete my account</button> : <>
       <p>This permanently deletes your instructions, tasks, trusted actions, activity and stored connections, and removes your sign-in. Items already created in Google Calendar, Jira or email are not undone.</p>
       <label>Type DELETE to confirm<input value={typed} onChange={event => setTyped(event.target.value)} /></label>
