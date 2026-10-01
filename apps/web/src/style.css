@@ -111,3 +111,8 @@ article .actions{margin-top:var(--space-4)}
 .badge-neutral{background:var(--bg-page);color:var(--text-muted);box-shadow:inset 0 0 0 1px var(--border-default)}
 .panel form{margin-top:var(--space-5);padding-top:var(--space-4);border-top:1px solid var(--border-default)}
 .list .alert{margin:var(--space-2) 0 0}
+
+/* Kian's reply */
+.assistant{margin:var(--space-4) 0;padding:var(--space-3) var(--space-4);background:var(--bg-surface);border:1px solid var(--border-default);border-left:4px solid var(--action-primary-bg);border-radius:var(--radius-md);box-shadow:var(--shadow-soft)}
+.assistant-name{margin:0;color:var(--text-muted);font-size:var(--font-size-sm);font-weight:700}
+.assistant-text{margin:var(--space-1) 0 0;white-space:pre-wrap;overflow-wrap:anywhere}

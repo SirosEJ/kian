@@ -35,3 +35,17 @@ Use any provider that is connected; email on a preview or staging works without 
 | Activity shows the Message-ID and result for each sent email | pending | |
 | A second account sees none of these tasks, rules or activity | pending | |
 
+## SFT-227: voice and text intake with Kian's reply
+
+Use the real planning model on a preview or staging.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Type "Email <A> that the meeting is moved to Friday": Kian replies in words, proposes one email with a subject it wrote | pending | |
+| Type "Book me a flight to Rome": Kian explains it cannot, lists what it can do, and creates no task | pending | |
+| Type "Meeting with Sam on Friday": Kian asks for the exact time (or the proposal is flagged) instead of guessing | pending | |
+| Type two actions in one sentence: two separate task cards, each with its own account, destination and details | pending | |
+| Dictate (Chrome) the same text: identical reply and cards to typing | pending | |
+| Task cards show "Using <mailbox name>" | pending | |
+| Dictation in Safari | pending | |
+

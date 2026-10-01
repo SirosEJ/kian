@@ -1,5 +1,5 @@
 import { tokens, cssVar } from '../theme/index.js';
-import { Alert, Button, Card, Logo, StatusBadge } from './index.js';
+import { Alert, AssistantMessage, Button, Card, Logo, StatusBadge } from './index.js';
 
 const hidden = new Set(['navy-950', 'navy-700', 'cyan-300', 'ice-100']);
 
@@ -33,6 +33,9 @@ export function Gallery() {
 
     <h2>Task status</h2>
     <p>{['proposed', 'queued', 'succeeded', 'failed', 'rejected', 'uncertain'].map(state => <span key={state}><StatusBadge state={state} />{' '}</span>)}</p>
+
+    <h2>Kian's reply</h2>
+    <AssistantMessage>I prepared an email to Sam for you to review. Which subject would you like?</AssistantMessage>
 
     <h2>Messages</h2>
     <Alert tone="success">Connected. The mailbox accepted the test.</Alert>
