@@ -25,6 +25,14 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   if(webDistPath) {
     app.register(fastifyStatic,{root:join(webDistPath,'assets'),prefix:'/assets/',wildcard:true});
     app.get('/',async(_request,reply)=>reply.sendFile('index.html',webDistPath));
+    // Pages the web app routes on the client. A browser load (Accept: text/html) gets the app; the app's own
+    // requests (Accept: */*, e.g. GET /activity) still reach the JSON API.
+    const clientPages=new Set(['/activity','/settings','/account']);
+    app.addHook('onRequest',async(request,reply)=>{
+      if(request.method!=='GET' || !(request.headers.accept || '').includes('text/html')) return;
+      const path=request.url.split('?')[0].replace(/\/+$/,'');
+      if(clientPages.has(path)) return reply.sendFile('index.html',webDistPath);
+    });
   }
   app.get('/health', async () => ({ status: 'ok' }));
   const authenticate = options.verifyToken ? createRequireUser(options.verifyToken) : requireUser;

@@ -18,6 +18,10 @@ No staging cloud resources or paid production services have been created by this
 
 To enable a provider on staging, set the GitHub repository variable `KIAN_GOOGLE_CLIENT_ID` / `KIAN_JIRA_CLIENT_ID`, create the Secret Manager secret `kian-google-client-secret` / `kian-jira-client-secret`, and grant the Cloud Run runtime service account (`<project number>-compute@developer.gserviceaccount.com`) `roles/secretmanager.secretAccessor` on that secret. The workflow skips a provider, with a warning, until both exist. Secret values are created by the owner and never committed.
 
+## App pages and OAuth return
+
+The web app has four pages: Home `/`, Activity `/activity`, Settings `/settings` and Account `/account` (reached from the profile menu at the top right). The API serves the app for a browser load of these paths (a request that accepts `text/html`); the app's own requests to `/activity` and other API paths still get JSON. Unknown paths return a 404 JSON error from the API. OAuth redirect URLs stay as the site root with a trailing slash (`https://<host>/`): the app moves that return to `/settings?code=...&state=...` before the page loads, where the connection is completed. Do not register `/settings` as a redirect.
+
 ## Secrets and account configuration
 
 Supply `DATABASE_URL`, Firebase application default credentials and project ID, `OPENAI_API_KEY`, Google and Jira OAuth client values and one persistent base64 32-byte `KIAN_ENCRYPTION_KEY`. Store them in the deployment secret manager. Never commit customer mailbox passwords or OAuth tokens. Losing or rotating the encryption key without re-encryption makes saved connections unusable; ask users to reconnect.
