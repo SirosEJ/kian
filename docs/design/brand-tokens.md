@@ -12,7 +12,15 @@ A visual preview generated from the token file is in [`brand-preview.html`](bran
 
 Variable names: palette `--palette-navy-900`; semantic roles `--bg-page`, `--bg-surface`, `--text-body`, `--text-link`, `--border-input`, `--action-primary-bg`, `--action-primary-text`, `--state-recording`, `--status-success-bg`, and so on (the path in the token file joined with `-`); type `--font-sans`, `--font-serif`, `--font-size-base`, `--line-height-normal`; shape `--radius-md`, `--shadow-raised`, `--space-4`. In CSS use `color: var(--text-body)`; in inline styles use `cssVar('text-body')` from `apps/web/src/theme`. Dark theme variables are not emitted until the dark theme is approved (`buildThemeCss(tokens, { includeDark: true })` produces them under `:root[data-theme="dark"]`).
 
-The existing `style.css` still has hard-coded colours; SFT-246 and SFT-247 convert it.
+## Components, fonts and the stylesheet (SFT-246)
+
+- `apps/web/src/style.css` is written entirely with the token variables and contains no raw colour values (a test enforces this, and that every variable it uses exists in the token build). To change how something looks, change the token, not the stylesheet.
+- Components in `apps/web/src/components/`: `Logo` (variants `light` and `dark`, minimum width 160px), `Button` (`primary`, `secondary`, `destructive`, `ghost`), `Alert` (`success`, `warning`, `error`, `info`), `Card`. A plain `<button>` also gets the primary style, and `role="alert"` / `role="status"` paragraphs get the error / info look.
+- Fonts are self-hosted from npm (`@fontsource-variable/inter` and `@fontsource-variable/fraunces`), so the app makes no request to Google Fonts. The browser downloads only the character sets a page needs.
+- Open the app with `?components` (for example `https://kian-staging-1088794188480.europe-west1.run.app/?components`) to see the gallery: logo on light and navy, palette, type, buttons, form controls and messages. It needs no sign-in and shows no data.
+- The logo files used by the app are copies in `apps/web/src/assets/logo/` of the variants in `docs/design/`. Replace both when the design team supplies the SVG master.
+
+The remaining screens are moved onto these components in SFT-250 (layout) and SFT-247.
 
 ## Where the values come from
 

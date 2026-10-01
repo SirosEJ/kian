@@ -6,6 +6,10 @@ import { Dashboard } from './routes/Dashboard.js';
 import { Activity } from './routes/Activity.js';
 import { Account } from './routes/Account.js';
 import { Settings } from './routes/Settings.js';
+import { Gallery } from './components/Gallery.js';
+import { Logo } from './components/Logo.js';
+import '@fontsource-variable/inter/wght.css';
+import '@fontsource-variable/fraunces/wght.css';
 import 'virtual:kian-theme.css';
 import './style.css';
 
@@ -16,9 +20,12 @@ function App() {
     try { return watchUser(account => setUser(account)); }
     catch { setConfigurationError('Account sign-in is not configured yet.'); }
   }, []);
-  if (configurationError) return <main className="card"><h1>Kian</h1><p role="alert">{configurationError}</p></main>;
+  if (configurationError) return <main className="card"><Logo /><h1>Kian</h1><p role="alert">{configurationError}</p></main>;
   if (!user) return <SignIn onSubmit={submitCredentials} />;
-  return <main className="card"><h1>Kian</h1><p>Signed in as {user.email}</p><Dashboard /><Activity /><Settings /><Account onDeleted={() => { void signOutUser(); }} /><button onClick={() => signOutUser()}>Sign out</button></main>;
+  return <main className="card"><Logo /><h1>Kian</h1><p className="muted">Signed in as {user.email}</p><Dashboard /><Activity /><Settings /><Account onDeleted={() => { void signOutUser(); }} /><button onClick={() => signOutUser()}>Sign out</button></main>;
 }
 
-createRoot(document.getElementById('root')!).render(<React.StrictMode><App /></React.StrictMode>);
+// `?components` shows the component gallery without signing in.
+function Root() { return new URLSearchParams(window.location.search).has('components') ? <Gallery /> : <App />; }
+
+createRoot(document.getElementById('root')!).render(<React.StrictMode><Root /></React.StrictMode>);
