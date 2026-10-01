@@ -1,10 +1,11 @@
 import type { FastifyInstance } from 'fastify';
 import type { TaskProposal } from '@kian/contracts';
+import type { PlanResult } from './plan.js';
 import OpenAI, { toFile } from 'openai';
 
 export type TaskRoutes = {
   authenticate: (request: { headers: { authorization?: string } }) => Promise<string>;
-  plan: (ownerId: string, text: string, locale: string, timeZone: string) => Promise<TaskProposal[]>;
+  plan: (ownerId: string, text: string, locale: string, timeZone: string) => Promise<PlanResult>;
   save: (ownerId: string, text: string, tasks: TaskProposal[]) => Promise<TaskProposal[] | void>;
   transcribe?: (audio: Buffer, mimeType: string) => Promise<string>;
 };
@@ -21,9 +22,9 @@ export function registerTaskRoutes(app: FastifyInstance, deps: TaskRoutes) {
     const ownerId = await deps.authenticate(request);
     const text = request.body?.text?.trim();
     if (!text || text.length > 10000) return reply.code(400).send({ error: 'Instruction text must be 1–10000 characters' });
-    const tasks = await deps.plan(ownerId, text, request.body.locale || 'en-GB', request.body.timeZone || 'UTC');
+    const { reply: assistantReply, tasks } = await deps.plan(ownerId, text, request.body.locale || 'en-GB', request.body.timeZone || 'UTC');
     const saved = await deps.save(ownerId, text, tasks);
-    return reply.code(201).send({ tasks: saved || tasks });
+    return reply.code(201).send({ reply: assistantReply, tasks: saved || tasks });
   });
 
   app.post<{Body:{audioBase64?:string;mimeType?:string}}>('/transcriptions', { bodyLimit: 16 * 1024 * 1024 }, async (request, reply) => {

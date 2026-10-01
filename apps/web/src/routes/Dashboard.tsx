@@ -1,9 +1,10 @@
 import { useEffect,useState } from 'react';
 import { apiRequest } from '../api.js';
-import { Alert, Button } from '../components/index.js';
+import { Alert, AssistantMessage, Button } from '../components/index.js';
 import { PromptBox } from '../features/prompt/PromptBox.js';
 import { TaskReview, type ReviewTask } from './TaskReview.js';
 import { Link } from '../layout/Link.js';
+import { describePlanResult } from '../features/prompt/planResult.js';
 
 async function encode(blob: Blob): Promise<string> {
   return new Promise((resolve, reject) => {
@@ -24,6 +25,7 @@ export function Dashboard() {
   const [tasks, setTasks] = useState<ReviewTask[]>([]);
   const [error, setError] = useState('');
   const [notice, setNotice] = useState('');
+  const [reply, setReply] = useState('');
   useEffect(()=>{void apiRequest('/tasks').then(setTasks).catch(()=>{});},[]);
 
   function refreshTasks() {void apiRequest('/tasks').then(setTasks).catch(()=>setError('Could not refresh tasks.'));}
@@ -31,13 +33,16 @@ export function Dashboard() {
   async function submit(text: string) {
     const result = await apiRequest('/instructions', 'POST', { text, locale: navigator.language, timeZone: Intl.DateTimeFormat().resolvedOptions().timeZone });
     setError('');
-    setNotice(result.tasks.length ? '' : 'Kian did not create any tasks from that instruction. Nothing will be sent or changed.');
+    const shown = describePlanResult(result);
+    setReply(shown.reply);
+    setNotice(shown.notice);
     setTasks(current=>[...result.tasks,...current]);
   }
 
   return <section><h2>What would you like Kian to do?</h2>
     <PromptBox onSubmit={submit} transcribe={transcribe} />
     {error && <Alert tone="error">{error}</Alert>}
+    {reply && <AssistantMessage>{reply}</AssistantMessage>}
     {notice && <Alert tone="info">{notice}</Alert>}
     {tasks.length === 0 && <p>Welcome to Kian. Connect Google Calendar, Jira Cloud or your mailbox under <Link to="/settings">Settings</Link> (open it from your profile at the top right), then type or record an instruction. Kian shows every proposed action for your approval before anything happens.</p>}
     {tasks.length > 0 && <section aria-label="Proposed tasks"><div className="section-header"><h3>Your tasks</h3><Button variant="ghost" onClick={refreshTasks}>Refresh tasks</Button></div>{tasks.map(task => <TaskReview key={task.id} task={task} onChange={changed=>setTasks(current=>current.map(t=>t.id===changed.id ? changed : t))} />)}</section>}

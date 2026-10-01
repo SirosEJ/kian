@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { renderToString } from 'react-dom/server';
-import { Alert, Button, Card, Logo, StatusBadge } from './index.js';
+import { Alert, AssistantMessage, Button, Card, Logo, StatusBadge } from './index.js';
 import { Gallery } from './Gallery.js';
 
 describe('token-driven components', () => {
@@ -32,6 +32,13 @@ describe('token-driven components', () => {
       expect(html).toContain(`badge-${tone}`);
     }
     expect(renderToString(<StatusBadge state="something-new" />)).toContain('badge-neutral');
+  });
+
+  it('shows Kian\'s reply as a labelled assistant message', () => {
+    const html = renderToString(<AssistantMessage>I prepared 1 action for you to review.</AssistantMessage>);
+    expect(html).toContain('aria-label="Kian&#x27;s reply"');
+    expect(html).toContain('>Kian<');
+    expect(html).toContain('I prepared 1 action for you to review.');
   });
 
   it('wraps content in a card panel', () => {

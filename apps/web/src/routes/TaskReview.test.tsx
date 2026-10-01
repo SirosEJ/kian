@@ -19,5 +19,10 @@ describe('task review', () => {
     expect(html).not.toContain('Always do this without asking');
     expect(html).not.toContain('type="checkbox"');
   });
+
+  it('says which account the task will use, or that none is chosen yet', () => {
+    const html = renderToStaticMarkup(<TaskReview task={{ id:'n',action:'email.send',state:'proposed',destination:'sam@example.com',connectionId:null,parameters:{subject:'Hi',body:'Hello'},uncertainties:[] }} onChange={()=>{}} />);
+    expect(html).toContain('No account selected yet');
+  });
 });
 
