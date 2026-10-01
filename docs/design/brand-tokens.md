@@ -6,6 +6,14 @@ Machine-readable source: [`apps/web/src/theme/tokens.json`](../../apps/web/src/t
 
 A visual preview generated from the token file is in [`brand-preview.html`](brand-preview.html) (open it in a browser from the repo's `docs/design` folder).
 
+## How the tokens reach the app
+
+`apps/web/src/theme/tokens.json` is the single source. A small Vite plugin in `apps/web/vite.config.ts` turns it into CSS custom properties on `:root` (generator: `apps/web/src/theme/css.ts`) and serves them as `virtual:kian-theme.css`, which `apps/web/src/main.tsx` imports before `style.css`. Edit the JSON and every build, and the dev server, picks it up. Do not hand-edit generated CSS.
+
+Variable names: palette `--palette-navy-900`; semantic roles `--bg-page`, `--bg-surface`, `--text-body`, `--text-link`, `--border-input`, `--action-primary-bg`, `--action-primary-text`, `--state-recording`, `--status-success-bg`, and so on (the path in the token file joined with `-`); type `--font-sans`, `--font-serif`, `--font-size-base`, `--line-height-normal`; shape `--radius-md`, `--shadow-raised`, `--space-4`. In CSS use `color: var(--text-body)`; in inline styles use `cssVar('text-body')` from `apps/web/src/theme`. Dark theme variables are not emitted until the dark theme is approved (`buildThemeCss(tokens, { includeDark: true })` produces them under `:root[data-theme="dark"]`).
+
+The existing `style.css` still has hard-coded colours; SFT-246 and SFT-247 convert it.
+
 ## Where the values come from
 
 - The Sepenta website (sepenta.io) defines its brand colours as CSS variables; read on 1 Oct 2026: navy `#07132F`, navy-2 `#0F1D42`, cyan `#01B6DF`, cyan text `#017A96`, blue `#3D63F5`. Body text `#1B2333`, muted `#5B6B85`, light surface `#F1F6F9`, border `#D7DEE9`, amber `#E8B04B`, error `#B23B3B`.

@@ -6,6 +6,7 @@ import { Dashboard } from './routes/Dashboard.js';
 import { Activity } from './routes/Activity.js';
 import { Account } from './routes/Account.js';
 import { Settings } from './routes/Settings.js';
+import 'virtual:kian-theme.css';
 import './style.css';
 
 function App() {
