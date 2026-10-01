@@ -79,8 +79,6 @@ jobs:
 
       - name: Check the owner prerequisites
         env:
-          PROJECT: ${{ vars.GCP_PROJECT_ID }}
-          OPENAI_SECRET: ${{ vars.KIAN_OPENAI_SECRET || 'estate-openai-api-key' }}
           GOOGLE_CLIENT_ID: ${{ vars.KIAN_GOOGLE_CLIENT_ID }}
           JIRA_CLIENT_ID: ${{ vars.KIAN_JIRA_CLIENT_ID }}
         run: |
@@ -95,9 +93,8 @@ jobs:
             esac
             [ -n "$value" ] || missing="$missing variable:$name"
           done
-          for secret in kian-prod-database-url kian-prod-encryption-key "$OPENAI_SECRET"; do
-            gcloud secrets describe "$secret" --project "$PROJECT" >/dev/null 2>&1 || missing="$missing secret:$secret"
-          done
+          # The deployer is deliberately not allowed to look secrets up, so their existence cannot be checked here.
+          # Cloud Run checks them when the service is deployed and names any that is missing or unreadable.
           if [ -n "$missing" ]; then
             echo "::error::Production is not set up yet. Missing:$missing. See docs/operations.md, section Production." >&2
             exit 1
@@ -124,12 +121,12 @@ jobs:
           ENVS="GOOGLE_CLOUD_PROJECT=${{ vars.KIAN_FIREBASE_PROJECT_ID }}"
           # The database address and the encryption key come from Secret Manager only, so they never appear in this workflow's output.
           SECRETS="DATABASE_URL=kian-prod-database-url:latest,OPENAI_API_KEY=${OPENAI_SECRET}:latest,KIAN_ENCRYPTION_KEY=kian-prod-encryption-key:latest"
-          have_secret() { gcloud secrets describe "$1" --project "${{ vars.GCP_PROJECT_ID }}" >/dev/null 2>&1; }
-          if [ -n "$GOOGLE_CLIENT_ID" ] && have_secret kian-google-client-secret; then
+          # A provider is switched on by its client ID variable; its secret must then exist (Cloud Run reports it if not).
+          if [ -n "$GOOGLE_CLIENT_ID" ]; then
             ENVS="$ENVS,GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID,GOOGLE_REDIRECT_URI=${PUBLIC_URL}"
             SECRETS="$SECRETS,GOOGLE_CLIENT_SECRET=kian-google-client-secret:latest"
           fi
-          if [ -n "$JIRA_CLIENT_ID" ] && have_secret kian-jira-client-secret; then
+          if [ -n "$JIRA_CLIENT_ID" ]; then
             ENVS="$ENVS,JIRA_CLIENT_ID=$JIRA_CLIENT_ID,JIRA_REDIRECT_URI=${PUBLIC_URL}"
             SECRETS="$SECRETS,JIRA_CLIENT_SECRET=kian-jira-client-secret:latest"
           fi

@@ -16,7 +16,7 @@ No staging cloud resources or paid production services have been created by this
 
 `kian-staging` is a stable Cloud Run service deployed from `main` by `.github/workflows/staging.yml` (own Neon branch `kian-staging`). Its URL is `https://kian-staging-1088794188480.europe-west1.run.app/`. Register exactly this URL, with the trailing slash, as the OAuth redirect for the Google and Atlassian apps. Provider connections are tested here only. Story previews (`kian-sft-N`, `preview.yml`) have changing URLs and are for everything except provider OAuth.
 
-To enable a provider on staging, set the GitHub repository variable `KIAN_GOOGLE_CLIENT_ID` / `KIAN_JIRA_CLIENT_ID`, create the Secret Manager secret `kian-google-client-secret` / `kian-jira-client-secret`, and grant the Cloud Run runtime service account (`<project number>-compute@developer.gserviceaccount.com`) `roles/secretmanager.secretAccessor` on that secret. The workflow skips a provider, with a warning, until both exist. Secret values are created by the owner and never committed.
+To enable a provider on staging, set the GitHub repository variable `KIAN_GOOGLE_CLIENT_ID` / `KIAN_JIRA_CLIENT_ID`, create the Secret Manager secret `kian-google-client-secret` / `kian-jira-client-secret`, and grant the Cloud Run runtime service account (`<project number>-compute@developer.gserviceaccount.com`) `roles/secretmanager.secretAccessor` on that secret. The workflow switches a provider on when its variable is set (and warns when it is not); create the secret first, because the deployer is deliberately not allowed to look secrets up, so a missing secret shows up as a Cloud Run deploy error naming it. Secret values are created by the owner and never committed.
 
 ## Production
 
@@ -29,7 +29,7 @@ Run the workflow "Deploy Production" (Actions tab, or `gh workflow run productio
 1. checks the commit is on `main` and that its own "Deploy Staging" run succeeded (`scripts/verify-release-candidate.sh`; otherwise it stops);
 2. runs the full test suite on exactly that commit;
 3. waits for a required reviewer to approve the run in the GitHub `production` environment;
-4. checks the owner prerequisites below and stops with a list of what is missing;
+4. checks the production variables below and stops with a list of any that are missing (secrets cannot be checked ahead of time; Cloud Run names a missing or unreadable one when it deploys);
 5. deploys that commit (labelled `commit=<first 12 characters>`), runs the database migrations on start, and checks `/health`. The run summary shows the previous revision, the rollback command, and whether `https://kian.sepenta.io/health` already answers.
 
 Only commits that reached staging can be released. If staging has not deployed the commit you want (a newer merge replaced it in the queue), release the newer one, or re-run "Deploy Staging" for it first.

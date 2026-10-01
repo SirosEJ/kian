@@ -88,4 +88,11 @@ describe('production workflow', () => {
     // Every use of the input is a plain value (ref: or an environment variable), which the shell sees as data.
     for (const line of text.split('\n').filter(l => l.includes('${{ inputs.sha }}'))) expect(line.trim(), line).toMatch(/^(ref|RELEASE_SHA): \$\{\{ inputs\.sha \}\}$/);
   });
+
+  it('never tries to look secrets up, because the deployer is not allowed to (a failed lookup looks like a missing secret)', () => {
+    for (const file of ['production.yml', 'staging.yml', 'preview.yml']) {
+      const workflow = readFileSync(fileURLToPath(new URL(`../../../../.github/workflows/${file}`, import.meta.url)), 'utf8');
+      expect(workflow, file).not.toMatch(/gcloud secrets (describe|list|versions)/);
+    }
+  });
 });
