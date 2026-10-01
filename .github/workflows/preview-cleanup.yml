@@ -1,0 +1,75 @@
+name: Clean Up Story Preview
+
+# Removes a story's preview (Cloud Run service kian-sft-N and Neon branch kian-sft-N) when its pull request closes,
+# merged or not. Can also be run by hand for one story; the manual run is a dry run unless you untick it.
+
+on:
+  pull_request:
+    types:
+      - closed
+  workflow_dispatch:
+    inputs:
+      story:
+        description: 'Story number, for example 226 (digits only)'
+        required: true
+      dry_run:
+        description: 'Only report what would be deleted'
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+  id-token: write
+
+concurrency:
+  group: kian-cleanup-${{ github.event.pull_request.number || inputs.story }}
+  cancel-in-progress: false
+
+jobs:
+  cleanup:
+    # Pull requests from this repository only, from story branches (SFT-<number>-...); never from forks.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.event.pull_request.head.ref, 'SFT-'))
+    runs-on: ubuntu-latest
+    environment: staging
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Work out the story number
+        id: story
+        env:
+          EVENT: ${{ github.event_name }}
+          INPUT_STORY: ${{ inputs.story }}
+          HEAD_REF: ${{ github.event.pull_request.head.ref }}
+        run: |
+          set -euo pipefail
+          if [ "$EVENT" = workflow_dispatch ]; then
+            NUMBER="$INPUT_STORY"
+          else
+            NUMBER="$(printf '%s' "$HEAD_REF" | sed -n -E 's/^SFT-([0-9]+).*/\1/p')"
+          fi
+          [[ "$NUMBER" =~ ^[0-9]{1,6}$ ]] || { echo "::error::Could not read a story number from '${HEAD_REF:-$INPUT_STORY}'" >&2; exit 1; }
+          echo "number=$NUMBER" >> "$GITHUB_OUTPUT"
+
+      - uses: google-github-actions/auth@v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WORKLOAD_IDENTITY_PROVIDER }}
+          service_account: ${{ vars.GCP_DEPLOYER_SERVICE_ACCOUNT }}
+
+      - uses: google-github-actions/setup-gcloud@v3
+
+      - name: Delete the story preview
+        env:
+          GCP_PROJECT_ID: ${{ vars.GCP_PROJECT_ID }}
+          NEON_API_KEY: ${{ secrets.NEON_API_KEY }}
+          NEON_PROJECT_ID: ${{ vars.NEON_PROJECT_ID }}
+          NUMBER: ${{ steps.story.outputs.number }}
+          DRY_RUN: ${{ github.event_name == 'workflow_dispatch' && inputs.dry_run }}
+        run: |
+          set -euo pipefail
+          if [ "$DRY_RUN" = true ]; then
+            bash scripts/cleanup-story-preview.sh "$NUMBER" --dry-run
+          else
+            bash scripts/cleanup-story-preview.sh "$NUMBER"
+          fi

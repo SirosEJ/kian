@@ -18,6 +18,12 @@ No staging cloud resources or paid production services have been created by this
 
 To enable a provider on staging, set the GitHub repository variable `KIAN_GOOGLE_CLIENT_ID` / `KIAN_JIRA_CLIENT_ID`, create the Secret Manager secret `kian-google-client-secret` / `kian-jira-client-secret`, and grant the Cloud Run runtime service account (`<project number>-compute@developer.gserviceaccount.com`) `roles/secretmanager.secretAccessor` on that secret. The workflow skips a provider, with a warning, until both exist. Secret values are created by the owner and never committed.
 
+## Story preview cleanup
+
+Each story preview creates a Cloud Run service and a Neon database branch, both named `kian-sft-<N>`. The Neon project has a branch limit; when it is reached, preview deploys fail with Neon's own message ("branches limit exceeded"). `.github/workflows/preview-cleanup.yml` removes both automatically when a pull request from an `SFT-<N>-...` branch closes, merged or not (pull requests from this repository only). It uses `scripts/cleanup-story-preview.sh`, which only builds the name `kian-sft-<digits>`, so it cannot touch `kian-staging`, production, or the Neon default branch (which it also refuses explicitly), and running it twice is harmless.
+
+To clean a story by hand (for example one merged before this existed), run the workflow "Clean Up Story Preview" from the Actions tab with the story number. It is a dry run by default (it only lists what it would delete); untick "dry run" to delete. The same script works locally with `GCP_PROJECT_ID`, `NEON_API_KEY` and `NEON_PROJECT_ID` set: `scripts/cleanup-story-preview.sh 226 --dry-run`. The staging deployer already holds `run.services.delete` through `roles/run.sourceDeveloper`, so no extra permission is needed.
+
 ## App pages and OAuth return
 
 The web app has four pages: Home `/`, Activity `/activity`, Settings `/settings` and Account `/account` (reached from the profile menu at the top right). The API serves the app for a browser load of these paths (a request that accepts `text/html`); the app's own requests to `/activity` and other API paths still get JSON. Unknown paths return a 404 JSON error from the API. OAuth redirect URLs stay as the site root with a trailing slash (`https://<host>/`): the app moves that return to `/settings?code=...&state=...` before the page loads, where the connection is completed. Do not register `/settings` as a redirect.
