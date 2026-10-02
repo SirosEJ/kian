@@ -265,3 +265,15 @@ Use the real microphone on staging (Chrome for live dictation; a browser without
 | "move SFT-NNN to Done" with the key written out still gives one card | pending | |
 | Approve all on the cards moves exactly those issues in Jira | pending | |
 
+## SFT-304: group requests are complete and honest
+
+Repeat the owner's sequence on staging in a new conversation, with more than 20 stories in one status (move a few back to Deployed in Jira first, or use another status).
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| "show me all the stories assigned to me", then "show me only the deployed ones": the second table still says "assigned to you" in its "Searched:" line | pending | |
+| "how many of them are in deployed status": Kian runs a search and the number matches the table | pending | |
+| "move all the deployed ones into done" with more than 20: Kian prepares 20 cards and says it is the most at once and to say "continue" | pending | |
+| Approve all, then "continue": Kian searches again and prepares cards for the remaining ones only | pending | |
+| At the end, "show me the deployed ones" finds none left | pending | |
+

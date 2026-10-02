@@ -63,7 +63,7 @@ export function shownNote(tables: ResultTable[] | null | undefined): string {
       const events = t.rows.slice(0, 10).map((r, i) => `[${t.refs![i]}] ${r[0]} ${r[1]} "${String(r[2]).slice(0, 60)}"`);
       return events.length ? [`${t.title}: ${events.join('; ')}`] : [];
     }
-    const keys = t.rows.map(r => r[0]).filter(k => /^[A-Z][A-Z0-9_]+-\d+$/.test(k)).slice(0, 20);
+    const keys = t.rows.map(r => r[0]).filter(k => /^[A-Z][A-Z0-9_]+-\d+$/.test(k)).slice(0, 50);
     return keys.length ? [`${t.title}${searched ? ` (searched: ${searched})` : ''}: ${keys.join(', ')}`] : searched ? [`${t.title} (searched: ${searched}): nothing found`] : [];
   });
   return parts.length ? `\n[Shown earlier: ${parts.join('; ')}]` : '';

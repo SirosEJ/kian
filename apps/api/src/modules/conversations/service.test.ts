@@ -293,7 +293,9 @@ describe('conversation with Kian', () => {
       expect(shownNote([{ title: 'Issues', columns: [], rows: [], links: [], note: 'Searched: assigned to you.' }])).toBe('\n[Shown earlier: Issues (searched: assigned to you): nothing found]');
       expect(shownNote([{ title: 'By status', columns: ['Status', 'Issues'], rows: [['Done', '3']], links: [null] }])).toBe('');
       const many = { ...table, rows: Array.from({ length: 50 }, (_, i) => [`AB-${i + 1}`, "s"]) };
-      expect(shownNote([many]).split(',').length).toBe(20);
+      // Every row of a table (the table itself shows at most 50) is remembered, so a group request can name all of them.
+      expect(shownNote([many]).split(',').length).toBe(50);
+      expect(shownNote([{ ...many, rows: Array.from({ length: 60 }, (_, i) => [`AB-${i + 1}`, 's']) }]).split(',').length).toBe(50);
     });
 
     it('lets the model see which issues the last answer showed, so it can look them up again', async () => {
