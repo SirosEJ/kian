@@ -255,3 +255,13 @@ Use the real microphone on staging (Chrome for live dictation; a browser without
 | Recorded transcription (no live dictation): names from the vocabulary are recognised and corrections applied | pending | |
 | Phone width: dictation and the editable text still work | pending | |
 
+## SFT-303: only issues the user named or Kian showed
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| "move all my stories in deployed status into Done": Kian first shows a table of the Deployed issues (no cards), then after "yes" one card per issue in that table | pending | |
+| No card appears for an issue that is not in the table (for example one in UAT or already Done) | pending | |
+| "change 269 to In Progress" (a bare number) still gives one card | pending | |
+| "move SFT-NNN to Done" with the key written out still gives one card | pending | |
+| Approve all on the cards moves exactly those issues in Jira | pending | |
+
