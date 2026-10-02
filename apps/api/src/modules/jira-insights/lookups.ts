@@ -16,7 +16,7 @@ export const LookupSchema = z.discriminatedUnion('type', [
     type: z.literal('search'), project: projectKey.optional(), issueTypes: z.array(word).max(5).optional(), statuses: z.array(word).max(8).optional(),
     statusCategory: z.enum(['To Do', 'In Progress', 'Done']).optional(), assignee: z.enum(['me', 'unassigned']).optional(),
     createdFrom: date.optional(), createdTo: date.optional(), updatedFrom: date.optional(), updatedTo: date.optional(), resolvedFrom: date.optional(), resolvedTo: date.optional(),
-    epic: issueKey.optional(), text: z.string().trim().min(1).max(100).optional(), orderBy: z.enum(['created', 'updated']).optional(), limit: z.number().int().min(1).max(LIMITS.tableRows).optional(),
+    epic: issueKey.optional(), keys: z.array(issueKey).max(20).optional(), text: z.string().trim().min(1).max(100).optional(), orderBy: z.enum(['created', 'updated']).optional(), limit: z.number().int().min(1).max(LIMITS.tableRows).optional(),
   }),
   z.object({ type: z.literal('issue'), key: issueKey }),
   z.object({ type: z.literal('epic'), key: issueKey }),
@@ -57,10 +57,11 @@ export const quote = (value: string) => `"${value.replace(/[\\"\u0000-\u001f]/g,
 export function searchJql(lookup: SearchLookup, today: string, defaultProject: string | null | undefined): { jql: string; notes: string[] } {
   const notes: string[] = [];
   const parts: string[] = [];
-  const project = lookup.project ?? (defaultProject && !lookup.epic ? defaultProject : undefined);
+  const project = lookup.project ?? (defaultProject && !lookup.epic && !lookup.keys?.length ? defaultProject : undefined);
   if (project) parts.push(`project = ${quote(project)}`);
   if (!lookup.project && project) notes.push(`Searching project ${project}, the one you chose in Settings.`);
   if (lookup.epic) parts.push(`parent = ${quote(lookup.epic)}`);
+  if (lookup.keys?.length) parts.push(`key in (${lookup.keys.map(quote).join(', ')})`);
   if (lookup.issueTypes?.length) parts.push(`issuetype in (${lookup.issueTypes.map(quote).join(', ')})`);
   if (lookup.statuses?.length) parts.push(`status in (${lookup.statuses.map(quote).join(', ')})`);
   if (lookup.statusCategory) parts.push(`statusCategory = ${quote(lookup.statusCategory)}`);
@@ -74,6 +75,6 @@ export function searchJql(lookup: SearchLookup, today: string, defaultProject: s
   }
   if (lookup.text) parts.push(`text ~ ${quote(lookup.text)}`);
   // Jira refuses queries with no restriction at all, and an unbounded question would be slow: default to the look-back window.
-  if (!project && !lookup.epic && !dated) { parts.push(`updated >= ${quote(addDays(today, -LIMITS.lookbackDays))}`); notes.push(`No project or period given, so I searched the last ${LIMITS.lookbackDays} days.`); }
+  if (!project && !lookup.epic && !lookup.keys?.length && !dated) { parts.push(`updated >= ${quote(addDays(today, -LIMITS.lookbackDays))}`); notes.push(`No project or period given, so I searched the last ${LIMITS.lookbackDays} days.`); }
   return { jql: `${parts.join(' AND ')} ORDER BY ${lookup.orderBy ?? 'updated'} DESC`, notes };
 }

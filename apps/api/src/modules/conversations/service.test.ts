@@ -3,7 +3,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { readFile } from 'node:fs/promises';
 import type { TaskProposal } from '@kian/contracts';
 import { createApprovalService } from '../tasks/approval.js';
-import { ConversationError, createConversationService, LIMITS, todayIn, type JiraLookupPort, type Plan } from './service.js';
+import { ConversationError, createConversationService, LIMITS, shownNote, todayIn, type JiraLookupPort, type Plan } from './service.js';
 import type { Thread } from '../tasks/plan.js';
 
 async function setup(plan: Plan, jira?: JiraLookupPort) {
@@ -277,6 +277,32 @@ describe('conversation with Kian', () => {
       expect(todayIn('Europe/Istanbul', now)).toBe('2026-10-03');
       expect(todayIn('America/Los_Angeles', now)).toBe('2026-10-02');
       expect(todayIn('Not/AZone', now)).toBe('2026-10-02');
+    });
+  });
+
+  describe('follow-ups about earlier Jira results', () => {
+    const table = { title: 'Issues', columns: ['Key', 'Summary'], rows: [['SFT-245', 'Theme file'], ['SFT-244', 'Colour tokens'], ['not a key', 'x']], links: [null, null, null] };
+
+    it('summarises the keys a table showed, and nothing else', () => {
+      expect(shownNote([table])).toBe('\n[Shown earlier: Issues: SFT-245, SFT-244]');
+      expect(shownNote([])).toBe('');
+      expect(shownNote(undefined)).toBe('');
+      expect(shownNote([{ title: 'By status', columns: ['Status', 'Issues'], rows: [['Done', '3']], links: [null] }])).toBe('');
+      const many = { ...table, rows: Array.from({ length: 50 }, (_, i) => [`AB-${i + 1}`, "s"]) };
+      expect(shownNote([many]).split(',').length).toBe(20);
+    });
+
+    it('lets the model see which issues the last answer showed, so it can look them up again', async () => {
+      const histories: Thread['history'][] = [];
+      const plan: Plan = async (_o, _t, _l, _z, thread) => { histories.push(thread.history); return { reply: 'Here they are.', tasks: [], pending: 'keep', lookups: thread.history.length === 0 && !thread.lookupResults ? [{ type: 'search', project: 'SFT' }] : [] }; };
+      const jira: JiraLookupPort = { info: async () => ({ connected: true, defaultProject: null }), run: async () => ({ tables: [table], digest: [], issuesRead: 2, notes: [] }) };
+      const { db, service } = await setup(plan, jira);
+      const first = await service.converse('alice', input('list the stories'));
+      await service.converse('alice', input('who created them?', first.conversationId));
+      const last = histories.at(-1)!;
+      expect(last.find(m => m.role === 'assistant')!.content).toBe('Here they are.\n[Shown earlier: Issues: SFT-245, SFT-244]');
+      expect(last.find(m => m.role === 'user')!.content).toBe('list the stories');
+      await db.close();
     });
   });
 });

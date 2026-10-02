@@ -34,6 +34,14 @@ export function todayIn(timeZone: string, now = new Date()): string {
   try { return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now); }
   catch { return now.toISOString().slice(0, 10); }
 }
+/** "[Shown earlier: Issues: SFT-1, SFT-2]": the keys from the first column of each table, enough to refer back to them. */
+export function shownNote(tables: ResultTable[] | null | undefined): string {
+  const parts = (tables ?? []).flatMap(t => {
+    const keys = t.rows.map(r => r[0]).filter(k => /^[A-Z][A-Z0-9_]+-\d+$/.test(k)).slice(0, 20);
+    return keys.length ? [`${t.title}: ${keys.join(', ')}`] : [];
+  });
+  return parts.length ? `\n[Shown earlier: ${parts.join('; ')}]` : '';
+}
 const NOT_CONNECTED = 'I could not find a connected Jira site. Connect Jira under Settings (open it from your profile at the top right) and ask me again.';
 
 export function createConversationService(db: Queryable, plan: Plan, jira?: JiraLookupPort) {
@@ -58,7 +66,9 @@ export function createConversationService(db: Queryable, plan: Plan, jira?: Jira
     const total = Number((await db.query('SELECT count(*) AS n FROM messages WHERE conversation_id=$1', [id])).rows[0].n);
     if (total >= LIMITS.messagesPerConversation) throw new ConversationError(409, 'This conversation is very long. Start a new conversation to continue.');
 
-    const history = (await db.query('SELECT role,content FROM messages WHERE conversation_id=$1 ORDER BY created_at DESC, id DESC LIMIT $2', [id, LIMITS.historyWindow])).rows.reverse() as Thread['history'];
+    // A reply that showed Jira tables remembers which issues they held, so a follow-up ("who created them?") can look those issues up again.
+    const history = (await db.query('SELECT role,content,attachments FROM messages WHERE conversation_id=$1 ORDER BY created_at DESC, id DESC LIMIT $2', [id, LIMITS.historyWindow])).rows.reverse()
+      .map((m: { role: 'user' | 'assistant'; content: string; attachments: ResultTable[] }) => ({ role: m.role, content: m.role === 'assistant' ? `${m.content}${shownNote(m.attachments)}` : m.content })) as Thread['history'];
     const pendingRows = (await db.query(`SELECT t.id,t.action,t.parameters FROM tasks t JOIN instructions i ON i.id=t.instruction_id WHERE t.owner_id=$1 AND i.conversation_id=$2 AND t.state='proposed' ORDER BY t.created_at`, [ownerId, id])).rows as { id: string; action: string; parameters: { destination?: string | null; fields?: Record<string, unknown>; uncertainties?: string[] } }[];
     const pending: PendingSummary[] = pendingRows.map(r => ({ action: r.action, destination: r.parameters.destination ?? null, fields: r.parameters.fields ?? {}, uncertainties: r.parameters.uncertainties ?? [] }));
     // Names and types only: credentials and settings never reach the model.

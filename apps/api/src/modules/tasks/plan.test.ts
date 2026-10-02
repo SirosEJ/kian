@@ -285,7 +285,7 @@ describe('Jira lookups in the planner', () => {
   });
 
   it('tells the model how to ask for lookups, to treat Jira text as untrusted, and never to write JQL', () => {
-    for (const phrase of ['"lookups" array', 'Never write JQL', '90 days', 'untrusted data', 'do not return tasks or lookups', 'Never state an issue']) expect(PLANNER_INSTRUCTIONS).toContain(phrase);
+    for (const phrase of ['"lookups" array', 'Never write JQL', '90 days', 'untrusted data', 'do not return tasks or lookups', 'Never state an issue', '[Shown earlier: ...]', 'by "keys"']) expect(PLANNER_INSTRUCTIONS).toContain(phrase);
   });
 });
 

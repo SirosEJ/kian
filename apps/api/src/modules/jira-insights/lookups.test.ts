@@ -72,4 +72,13 @@ describe('Jira lookups from the model', () => {
     expect(addDays('2026-12-31', 1)).toBe('2027-01-01');
     expect(addDays('2026-03-01', -1)).toBe('2026-02-28');
   });
+
+  it('looks up a given set of issues by key, without forcing the default project or a date window', () => {
+    const { jql, notes } = searchJql(search({ keys: ['SFT-245', 'OTHER-7'] }), today, 'SFT');
+    expect(jql).toBe('key in ("SFT-245", "OTHER-7") ORDER BY updated DESC');
+    expect(notes).toEqual([]);
+    expect(parseLookups([{ type: 'search', keys: ['not a key'] }]).lookups).toEqual([]);
+    expect(parseLookups([{ type: 'search', keys: Array.from({ length: 21 }, (_, i) => `A-${i + 1}`) }]).lookups).toEqual([]);
+  });
 });
+
