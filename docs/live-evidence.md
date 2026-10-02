@@ -180,3 +180,21 @@ Use the real planning model and the owner's real Google Calendar on staging (the
 | "Book a meeting at one of those times" after a lookup still produces a card that needs approval | pending | |
 | Phone width: table readable, page does not scroll sideways | pending | |
 | Another account never sees these answers or tables | pending (automated tests cover the isolation) | |
+
+## SFT-279: reliable commands and deleting calendar events
+
+Use the real planning model on staging with Google Calendar and Jira connected. Use a throwaway test event for the delete.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| "show me the stories in To Do assigned to me" when you have none: a table with "Searched: ..." or an honest "none" and how many match without the filter; never an invented list | pending | |
+| "there is a booking called test in my calendar for tomorrow, delete it": Kian looks it up, names the event and its time, and asks whether to prepare the delete (no question about the time) | pending | |
+| "yes": one card "Delete calendar event" with the real title and time; Approve deletes it in Google Calendar; Activity shows it | pending | |
+| Reject on that card: the event is still in Google Calendar | pending | |
+| A repeating event: the card says only this occurrence is deleted; the series stays | pending | |
+| "delete my meeting with someone" with several matches: Kian lists them and asks which (a real choice) | pending | |
+| "move all deployed status ones into done": goes straight to cards, no needless question | pending | |
+| Anything Kian cannot do (for example "delete the Jira issue"): Kian says so plainly, with no "I am preparing" claim | pending | |
+| The delete card has no "always do this" box and no Edit | pending | |
+| Phone width: card readable, no sideways scrolling | pending | |
+

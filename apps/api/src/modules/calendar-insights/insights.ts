@@ -4,6 +4,7 @@ import { addDays } from '../jira-insights/lookups.js';
 import { CAL_LIMITS, clampDay, dayLabel, dayOf, minutesBetween, timeOf, zonedInstant, type CalendarLookup } from './lookups.js';
 
 export type CalendarReader = {
+  event(connection: GoogleConnection, calendarId: string, eventId: string): Promise<CalendarEventRow & { recurring: boolean }>;
   events(connection: GoogleConnection, calendarId: string, timeMin: string, timeMax: string, options?: { q?: string; max?: number }): Promise<CalendarEventsResult>;
   details(connection: GoogleConnection, calendarId: string, timeMin: string, timeMax: string, q: string, max?: number): Promise<CalendarEventDetail[]>;
   calendars(connection: GoogleConnection): Promise<CalendarInfo[]>;
@@ -27,6 +28,7 @@ function eventTable(title: string, events: CalendarEventRow[], timeZone: string,
     title, columns: ['Day', 'Time', 'Event', 'Where', 'Invited', 'You'],
     rows: shown.map(e => { const w = when(e, timeZone); return [dayLabel(w.day), w.time, e.title, e.location ?? '', e.attendeeCount > 1 ? String(e.attendeeCount) : '', e.myResponse ? YOU[e.myResponse] ?? '' : '']; }),
     links: shown.map(e => e.link),
+    refs: shown.map(e => e.id),
     note: [note, extra > 0 ? `${extra} more not shown: narrow the question to see them.` : ''].filter(Boolean).join(' ') || undefined,
   };
 }

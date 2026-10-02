@@ -20,6 +20,8 @@ export function missingDetails(action: string, fields: Record<string, unknown> |
     if (blank(f.summary)) missing.push('title');
     if (blank(f.start)) missing.push('start time');
     if (blank(f.end)) missing.push('end time');
+  } else if (action === 'calendar.delete') {
+    if (blank(f.eventId)) missing.push('event');
   } else if (action === 'jira.create') {
     if (blank(f.summary)) missing.push('title');
   } else if (action === 'jira.transition') {

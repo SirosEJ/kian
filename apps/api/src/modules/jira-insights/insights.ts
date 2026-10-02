@@ -2,7 +2,7 @@ import { JiraReadError, type JiraConnection, type JiraIssueDetail, type JiraIssu
 import { addDays, clampDate, describeSearch, LIMITS, quote, searchJql, type Lookup } from './lookups.js';
 
 /** A table the chat can show. It is always built from Jira's own answer, never from model text. */
-export type ResultTable = { title: string; columns: string[]; rows: string[][]; links: (string | null)[]; note?: string };
+export type ResultTable = { title: string; columns: string[]; rows: string[][]; links: (string | null)[]; note?: string; /** Not shown: ids of the items in each row (calendar event ids), so a follow-up like "delete it" can name the exact one. */ refs?: string[] };
 export type Reader = { search(connection: JiraConnection, jql: string, max: number): Promise<JiraSearchResult>; issue(connection: JiraConnection, key: string): Promise<JiraIssueDetail> };
 export type LookupConnection = JiraConnection & { defaultProject?: string | null };
 export type LookupOutcome = { tables: ResultTable[]; digest: unknown[]; issuesRead: number; notes: string[] };

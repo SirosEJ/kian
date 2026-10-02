@@ -6,6 +6,7 @@ import type { Lookup } from '../jira-insights/lookups.js';
 import type { CalendarLookup } from '../calendar-insights/lookups.js';
 import type { CalendarContext } from '../calendar-insights/insights.js';
 import type { LookupOutcome, ResultTable } from '../jira-insights/insights.js';
+import { prepareDeletes } from '../calendar-insights/deletes.js';
 import { prepareTransitions, type TransitionChecker } from '../jira-insights/transitions.js';
 import { saveProposalsIn } from '../tasks/store.js';
 import { transaction } from '../transaction.js';
@@ -38,7 +39,10 @@ export type Converse = (ownerId: string, input: { text: string; conversationId?:
 export type CalendarLookupPort = {
   info(ownerId: string): Promise<{ connected: boolean }>;
   run(ownerId: string, lookups: CalendarLookup[], ctx: CalendarContext): Promise<LookupOutcome | null>;
+  /** Looks up the exact event a delete would remove, with the user's own connection. Null when Google Calendar is not connected. */
+  checkEvent?(ownerId: string, eventId: string, timeZone: string): Promise<EventCheck | null>;
 };
+export type EventCheck = { ok: true; calendarId: string; title: string; when: string; start: string; end: string; recurring: boolean } | { ok: false; reason: string };
 
 /** Today's date (YYYY-MM-DD) where the user is, so "yesterday" means their yesterday. */
 export function todayIn(timeZone: string, now = new Date()): string {
@@ -48,8 +52,13 @@ export function todayIn(timeZone: string, now = new Date()): string {
 /** "[Shown earlier: Issues: SFT-1, SFT-2]": the keys from the first column of each table, enough to refer back to them. */
 export function shownNote(tables: ResultTable[] | null | undefined): string {
   const parts = (tables ?? []).flatMap(t => {
-    const keys = t.rows.map(r => r[0]).filter(k => /^[A-Z][A-Z0-9_]+-\d+$/.test(k)).slice(0, 20);
     const searched = /Searched: ([^.]*)\./.exec(t.note ?? '')?.[1];
+    // Calendar rows keep their event ids (never shown on screen), so "delete it" can name the exact event; the titles are untrusted text, cut short.
+    if (t.refs?.length) {
+      const events = t.rows.slice(0, 10).map((r, i) => `[${t.refs![i]}] ${r[0]} ${r[1]} "${String(r[2]).slice(0, 60)}"`);
+      return events.length ? [`${t.title}: ${events.join('; ')}`] : [];
+    }
+    const keys = t.rows.map(r => r[0]).filter(k => /^[A-Z][A-Z0-9_]+-\d+$/.test(k)).slice(0, 20);
     return keys.length ? [`${t.title}${searched ? ` (searched: ${searched})` : ''}: ${keys.join(', ')}`] : searched ? [`${t.title} (searched: ${searched}): nothing found`] : [];
   });
   return parts.length ? `\n[Shown earlier: ${parts.join('; ')}]` : '';
@@ -116,6 +125,9 @@ export function createConversationService(db: Queryable, plan: Plan, jira?: Jira
 
     // Status changes are checked with Jira before they can be approved: current status, title, project, and whether Jira offers the move.
     if (result.tasks.some(t => t.action === 'jira.transition')) result = { ...result, tasks: await prepareTransitions(jira?.checkTransition, ownerId, result.tasks, jiraInfo.defaultProject) };
+
+    // Deletes are checked with Google first: the card shows the real title, time and calendar of the event it would remove.
+    if (result.tasks.some(t => t.action === 'calendar.delete')) result = { ...result, tasks: await prepareDeletes(calendar, ownerId, result.tasks, timeZone || 'UTC') };
 
     return transaction(db, async client => {
       const tasks = await saveProposalsIn(client, ownerId, text, result.tasks, id);

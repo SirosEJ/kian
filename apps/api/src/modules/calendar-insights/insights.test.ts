@@ -11,6 +11,7 @@ function fake(events: CalendarEventRow[] | ((min: string, max: string) => Calend
   const reader: CalendarReader = {
     events: async (_c, calendarId, min, max, options) => { calls.push({ kind: 'events', args: [calendarId, min, max, options?.q] }); return { events: typeof events === 'function' ? events(min, max) : events, truncated: false }; },
     details: async (_c, calendarId, _min, _max, q) => { calls.push({ kind: 'details', args: [calendarId, q] }); return []; },
+    event: async () => { throw new Error('unused'); },
     calendars: async () => [{ id: 'me@example.com', name: 'Me', primary: true }, { id: 'team@group', name: 'Team calendar', primary: false }],
     ...extra,
   };
@@ -143,6 +144,6 @@ describe('problems', () => {
   });
 
   it('can only read: the reader it is given has no write methods', () => {
-    expect(Object.keys(fake([]).reader).sort()).toEqual(['calendars', 'details', 'events']);
+    expect(Object.keys(fake([]).reader).sort()).toEqual(['calendars', 'details', 'event', 'events']);
   });
 });

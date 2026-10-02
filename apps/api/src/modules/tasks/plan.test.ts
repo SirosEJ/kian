@@ -42,7 +42,7 @@ describe('instruction planning', () => {
     for (const bad of [null, undefined, 'text', 42, [], { reply: 'x' }, { reply: 'x', tasks: 'no' }, { reply: 'x', tasks: Array(21).fill(email(['a@b.co'])) }]) {
       const result = await plan(bad);
       expect(result.tasks, JSON.stringify(bad)).toEqual([]);
-      expect(result.reply).toMatch(/could not understand that well enough/);
+      expect(result.reply).toMatch(/could not turn that into something/);
     }
   });
 
@@ -310,7 +310,7 @@ describe('Jira status changes in the planner', () => {
   it('accepts up to 20 status changes in one message and no more', async () => {
     const twenty = Array.from({ length: 20 }, (_, i) => move({ issueKey: `SFT-${i + 1}`, toStatus: 'Done' }));
     expect((await planWith({ reply: 'ok', tasks: twenty })).tasks).toHaveLength(20);
-    expect((await planWith({ reply: 'ok', tasks: [...twenty, move({ issueKey: 'SFT-99', toStatus: 'Done' })] })).reply).toMatch(/could not understand/);
+    expect((await planWith({ reply: 'ok', tasks: [...twenty, move({ issueKey: 'SFT-99', toStatus: 'Done' })] })).reply).toMatch(/could not turn that into something/);
   });
 
   it('tells the model how to ask for status changes, and to use only the keys it was shown', () => {
@@ -362,5 +362,84 @@ describe('calendar lookups in the planner', () => {
     expect(PLANNER_INSTRUCTIONS).toMatch(/Only promise or offer what you can do/);
     const messages = JSON.stringify(buildChatMessages('x', 'en', 'UTC', { nowIso: '', today: '', thread: base }));
     expect(messages).toContain('\\"calendar\\":{\\"connected\\":true}');
+  });
+});
+
+describe('reliable commands in the planner', () => {
+  const calendarThread: Thread = { history: [], pending: [], connections: [{ provider: 'google_calendar', name: 'Google' }], calendar: { connected: true }, jira: { connected: true, defaultProject: 'SFT' } };
+  const shown = (id: string): Thread => ({ ...calendarThread, history: [{ role: 'user', content: 'what is on tomorrow' }, { role: 'assistant', content: `Here you go.\n[Shown earlier: Agenda, Sat 3 Oct: [${id}] Sat 3 Oct 10:00–10:30 "key on test"]` }] });
+  const del = (eventId: string) => ({ action: 'calendar.delete', connectionId: null, destination: null, parameters: { eventId }, uncertainties: [] });
+  const scripted = (...answers: unknown[]) => { const contexts: PlanContext[] = []; let n = 0; const planner = createPlanner(async (_t, _l, _z, c) => { contexts.push(c); return answers[Math.min(n++, answers.length - 1)]; }); return { planner, contexts }; };
+  const run = (planner: ReturnType<typeof createPlanner>, t: Thread = calendarThread, text = 'show them') => planner('alice', text, 'en-GB', 'Europe/London', t);
+  const search = { type: 'search', project: 'SFT', statusCategory: 'To Do' };
+
+  it('repairs an unsupported item once: the model is told what was wrong and its second answer is used', async () => {
+    const { planner, contexts } = scripted({ reply: 'Here are the 20 stories.', tasks: [{ action: 'jira.search', connectionId: null, destination: null, parameters: {}, uncertainties: [] }] }, { reply: 'Looking.', lookups: [search] });
+    const result = await run(planner);
+    expect(contexts).toHaveLength(2);
+    expect(contexts[0].repair).toBeUndefined();
+    expect(contexts[1].repair).toContain('jira.search');
+    expect(result.lookups).toEqual([search]);
+    expect(result.reply).not.toContain('Here are the 20');
+  });
+
+  it('repairs unreadable output once, and says plainly that nothing was prepared when the retry fails too', async () => {
+    const { planner, contexts } = scripted('not json', { reply: 'I am preparing to delete it', tasks: [{ action: 'jira.search' }] });
+    const result = await run(planner);
+    expect(contexts).toHaveLength(2);
+    expect(result.tasks).toEqual([]);
+    expect(result.reply).toMatch(/nothing was prepared or changed/);
+    expect(result.reply).not.toMatch(/preparing to delete/);
+  });
+
+  it('never retries more than once, and never on the second pass of a lookup', async () => {
+    const bad = scripted({ reply: 'x', tasks: [{ action: 'nope' }] });
+    await run(bad.planner);
+    expect(bad.contexts).toHaveLength(2);
+    const second = scripted({ reply: 'Words only.', tasks: [{ action: 'nope' }] });
+    const result = await run(second.planner, { ...calendarThread, lookupResults: [{ type: 'search' }] });
+    expect(second.contexts).toHaveLength(1);
+    expect(result.reply).toBe('Words only.');
+  });
+
+  it('replaces a claim that has no card or table behind it, but keeps questions', async () => {
+    const claim = scripted({ reply: 'I am preparing to delete the event titled test.', tasks: [] });
+    expect((await run(claim.planner)).reply).toMatch(/not prepared anything yet/);
+    const listed = scripted({ reply: 'Here are the 20 stories assigned to you.', tasks: [] });
+    expect((await run(listed.planner)).reply).toMatch(/not prepared anything yet/);
+    const ask = scripted({ reply: 'I am preparing to delete the event at 10:00. Is that the right one?', tasks: [] });
+    expect((await run(ask.planner)).reply).toMatch(/Is that the right one\?$/);
+    const real = scripted({ reply: 'I am preparing to delete it.', tasks: [del('abc123')] });
+    expect((await run(real.planner, shown('abc123'))).reply).toContain('I am preparing to delete it.');
+  });
+
+  it('proposes a delete only for an event Kian has shown, never for an id the model made up', async () => {
+    const known = scripted({ reply: 'Ready.', tasks: [del('abc123')] });
+    const ok = await run(known.planner, shown('abc123'), 'yes delete it');
+    expect(ok.tasks).toHaveLength(1);
+    expect(ok.tasks[0]).toMatchObject({ action: 'calendar.delete', state: 'proposed', uncertainties: [] });
+    const guessed = scripted({ reply: 'Ready.', tasks: [del('zzz999')] });
+    const bad = await run(guessed.planner, shown('abc123'), 'delete it');
+    expect(bad.tasks[0].uncertainties.join(' ')).toMatch(/only delete an event I have shown you/);
+    const none = scripted({ reply: 'Ready.', tasks: [del('abc123')] });
+    expect((await run(none.planner, calendarThread, 'delete it')).tasks[0].uncertainties.join(' ')).toMatch(/shown you/);
+    const blank = scripted({ reply: 'Ready.', tasks: [del('')] });
+    expect((await run(blank.planner, shown('abc123'))).tasks[0].uncertainties.join(' ')).toMatch(/Which event/);
+  });
+
+  it('a delete does not need times from the model, and a lookup turn still returns no tasks', async () => {
+    const lookup = scripted({ reply: 'Looking.', lookups: [{ type: 'calendar.agenda', from: '2026-10-03' }], tasks: [del('abc123')] });
+    const result = await run(lookup.planner, shown('abc123'), 'find the test booking tomorrow and delete it');
+    expect(result.tasks).toEqual([]);
+    expect(result.calendarLookups).toHaveLength(1);
+  });
+
+  it('tells the model how to delete, to look things up before asking, and what repair means', () => {
+    expect(PLANNER_INSTRUCTIONS).toContain('calendar.delete');
+    expect(PLANNER_INSTRUCTIONS).toMatch(/Never ask the user for something you can look up/);
+    expect(PLANNER_INSTRUCTIONS).toMatch(/context\.repair/);
+    expect(CAPABILITIES).toMatch(/delete calendar events/);
+    const messages = buildChatMessages('x', 'en', 'UTC', { nowIso: '', today: '', thread: calendarThread, repair: 'bad' });
+    expect(messages.at(-1)!.content).toContain('"repair":"bad"');
   });
 });

@@ -24,5 +24,17 @@ describe('task review', () => {
     const html = renderToStaticMarkup(<TaskReview task={{ id:'n',action:'email.send',state:'proposed',destination:'sam@example.com',connectionId:null,parameters:{subject:'Hi',body:'Hello'},uncertainties:[] }} onChange={()=>{}} />);
     expect(html).toContain('No account selected yet');
   });
-});
 
+  it('shows a delete card with the event title and time, no Edit, and no "always do this" box', () => {
+    const html = renderToStaticMarkup(<TaskReview task={{ id:'d',action:'calendar.delete',state:'proposed',version:1,destination:'me@example.com',connectionId:'cal',parameters:{eventId:'abc123',summary:'key on test',when:'Sat 3 Oct 10:00–10:30',start:'2026-10-03T10:00:00+01:00',end:'2026-10-03T10:30:00+01:00',scope:'Only this occurrence is deleted, not the whole series.'},uncertainties:[] }} onChange={()=>{}} />);
+    expect(html).toContain('Delete calendar event');
+    expect(html).toContain('key on test');
+    expect(html).toContain('Sat 3 Oct 10:00–10:30');
+    expect(html).toContain('Only this occurrence');
+    expect(html).not.toContain('abc123');
+    expect(html).not.toContain('>Edit<');
+    expect(html).toContain('Approve');
+    expect(html).not.toContain('type="checkbox"');
+    expect(html).toMatch(/always need your approval/);
+  });
+});

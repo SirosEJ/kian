@@ -3,6 +3,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { readFile } from 'node:fs/promises';
 import { randomBytes } from 'node:crypto';
 import { encryptSecret } from '../connections/routes.js';
+import { CalendarReadError } from '@kian/connectors';
 import { createCalendarLookupPort } from './port.js';
 import type { CalendarReader } from './insights.js';
 
@@ -20,6 +21,7 @@ async function setup(request?: typeof fetch) {
   const reader: CalendarReader = {
     events: async (c, calendarId) => { calls.push({ token: c.accessToken, calendar: calendarId }); return { events: [], truncated: false }; },
     details: async () => [],
+    event: async () => { throw new Error('unused'); },
     calendars: async () => [],
   };
   return { db, calls, port: createCalendarLookupPort(db, request ? { ...config, request } : config, reader) };
@@ -61,6 +63,30 @@ describe('calendar lookups through the user\'s own connection', () => {
     expect(outcome?.notes[0]).toContain('Reconnect');
     expect(outcome?.tables).toEqual([]);
     expect(JSON.stringify(outcome)).not.toContain('secret-token');
+    await db.close();
+  });
+
+  it('checks the exact event a delete would remove, with the owner\'s own token and calendar', async () => {
+    const { db, calls } = await setup();
+    await add(db, 'c1', 'alice', 'alice-token', { destination: 'team@group' });
+    const seen: unknown[][] = [];
+    const reader: CalendarReader = { events: async () => ({ events: [], truncated: false }), details: async () => [], calendars: async () => [], event: async (c, cal, id) => { seen.push([c.accessToken, cal, id]); return { id, title: 'key on test', start: '2026-10-03T10:00:00+01:00', end: '2026-10-03T10:30:00+01:00', allDay: false, location: null, link: null, status: 'confirmed', myResponse: null, attendeeCount: 0, busy: true, recurring: true }; } };
+    const port = createCalendarLookupPort(db, config, reader);
+    expect(await port.checkEvent!('alice', 'abc123', 'Europe/London')).toEqual({ ok: true, calendarId: 'team@group', title: 'key on test', when: 'Sat 3 Oct 10:00–10:30', start: '2026-10-03T10:00:00+01:00', end: '2026-10-03T10:30:00+01:00', recurring: true });
+    expect(seen).toEqual([['alice-token', 'team@group', 'abc123']]);
+    expect(await port.checkEvent!('bob', 'abc123', 'Europe/London')).toBeNull();
+    expect(calls).toEqual([]);
+    await db.close();
+  });
+
+  it('reports an event that is missing or cancelled as a plain reason, never as an error', async () => {
+    const { db } = await setup();
+    await add(db, 'c1', 'alice', 'alice-token', {});
+    const base = { events: async () => ({ events: [], truncated: false }), details: async () => [], calendars: async () => [] };
+    const missing = createCalendarLookupPort(db, config, { ...base, event: async () => { throw new CalendarReadError('not-found', 'x'); } });
+    expect(await missing.checkEvent!('alice', 'gone', 'UTC')).toMatchObject({ ok: false, reason: expect.stringMatching(/could not find that event/) });
+    const cancelled = createCalendarLookupPort(db, config, { ...base, event: async (_c, _k, id) => ({ id, title: 't', start: '2026-10-03T10:00:00Z', end: '2026-10-03T11:00:00Z', allDay: false, location: null, link: null, status: 'cancelled', myResponse: null, attendeeCount: 0, busy: true, recurring: false }) });
+    expect(await cancelled.checkEvent!('alice', 'x', 'UTC')).toEqual({ ok: false, reason: 'That event is already cancelled.' });
     await db.close();
   });
 });
