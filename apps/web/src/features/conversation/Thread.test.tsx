@@ -97,6 +97,8 @@ describe('chat screen pieces', () => {
     it('names a lookup in Activity plainly', () => {
       expect(activityTitle(null, null, 'jira.lookup')).toBe('Jira lookup');
       expect(eventLabel('jira.lookup')).toMatch(/nothing was changed/);
+      expect(activityTitle(null, null, 'calendar.lookup')).toBe('Calendar lookup');
+      expect(eventLabel('calendar.lookup')).toMatch(/nothing was changed/);
       expect(activityTitle('email.send', 'sam@example.com', 'task.approved')).toBe('Send email to sam@example.com');
     });
   });
