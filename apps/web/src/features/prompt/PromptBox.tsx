@@ -1,7 +1,8 @@
 import { useLayoutEffect, useReducer, useRef, type KeyboardEvent } from 'react';
 import { MicButton } from '../recording/MicButton.js';
 import { sendFailure } from './planResult.js';
-import { canRecord, canSend, initialPrompt, promptReducer } from './promptState.js';
+import { canRecord, canSend, dictationEdit, initialPrompt, promptReducer } from './promptState.js';
+import { applyCorrections, type Correction } from './corrections.js';
 
 const statusText = { idle: '', recording: 'Listening… press the stop button when you are done.', transcribing: 'Transcribing…', sending: '' } as const;
 
@@ -9,9 +10,15 @@ function SendIcon() {
   return <svg aria-hidden="true" viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5M5 12l7-7 7 7" /></svg>;
 }
 
-type Props = { onSubmit: (text: string) => Promise<void>; transcribe: (blob: Blob) => Promise<string> };
+type Props = {
+  onSubmit: (text: string) => Promise<void>; transcribe: (blob: Blob) => Promise<string>;
+  /** Spoken forms the user has corrected before, applied to live dictation as it appears. */
+  corrections?: Correction[];
+  /** Called after a send when the user changed dictated words, so Kian can learn the correction. Never blocks sending. */
+  onDictationEdit?: (edit: { dictated: string; final: string }) => void;
+};
 
-export function PromptBox({ onSubmit, transcribe }: Props) {
+export function PromptBox({ onSubmit, transcribe, corrections = [], onDictationEdit }: Props) {
   const [state, dispatch] = useReducer(promptReducer, initialPrompt);
   const inFlight = useRef(false);
   const field = useRef<HTMLTextAreaElement>(null);
@@ -28,7 +35,8 @@ export function PromptBox({ onSubmit, transcribe }: Props) {
     if (inFlight.current || !canSend(state)) return;
     inFlight.current = true;
     dispatch({ type: 'send-start' });
-    try { await onSubmit(state.text.trim()); dispatch({ type: 'send-ok' }); }
+    const edit = dictationEdit(state.dictated, state.text);
+    try { await onSubmit(state.text.trim()); dispatch({ type: 'send-ok' }); if (edit) onDictationEdit?.(edit); }
     catch (error) { dispatch({ type: 'send-failed', message: sendFailure(error) }); }
     finally { inFlight.current = false; }
   }
@@ -48,7 +56,7 @@ export function PromptBox({ onSubmit, transcribe }: Props) {
     <div className="prompt-box">
       <textarea ref={field} aria-label="Type an instruction" rows={2} value={state.text} readOnly={state.status === 'recording'} placeholder="Tell Kian what you need: a Jira story, a meeting, an email, or ask a question" onChange={event => dispatch({ type: 'edit', text: event.target.value })} onKeyDown={onKeyDown} />
       <div className="prompt-actions">
-        <MicButton recording={state.status === 'recording'} disabled={!canRecord(state)} onStart={() => dispatch({ type: 'record-start' })} onLive={text => dispatch({ type: 'live', text })} onLiveEnd={() => dispatch({ type: 'live-end' })} onRecorded={blob => void recorded(blob)} onError={message => dispatch({ type: 'voice-failed', message })} />
+        <MicButton recording={state.status === 'recording'} disabled={!canRecord(state)} onStart={() => dispatch({ type: 'record-start' })} onLive={text => dispatch({ type: 'live', text: applyCorrections(text, corrections) })} onLiveEnd={() => dispatch({ type: 'live-end' })} onRecorded={blob => void recorded(blob)} onError={message => dispatch({ type: 'voice-failed', message })} />
         <button type="button" className="icon-button send" disabled={!canSend(state)} aria-label="Send instruction" title="Send (Enter)" onClick={() => void send()}>{busy ? <span className="spinner" aria-hidden="true" /> : <SendIcon />}</button>
       </div>
     </div>

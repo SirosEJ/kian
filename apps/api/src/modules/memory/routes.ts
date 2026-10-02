@@ -9,6 +9,15 @@ const Patch = z.object({ value: text(MEMORY_LIMITS.value), alias: text(MEMORY_LI
 /** "What Kian remembers": the signed-in user lists, adds, edits and deletes their own entries, and switches learning off. */
 export function registerMemoryRoutes(app: FastifyInstance, memory: MemoryStore, authenticate: (request: { headers: { authorization?: string } }) => Promise<string>) {
   app.get('/memory', async request => memory.view(await authenticate(request)));
+  // What the browser needs while dictating: the user's own spoken-form corrections (no vocabulary prompt, that stays on the server).
+  app.get('/memory/dictation', async request => { const { enabled, corrections } = await memory.dictation(await authenticate(request)); return { enabled, corrections }; });
+  // The user changed dictated words before sending: look-alike replacements seen twice become corrections.
+  app.post<{ Body: { dictated?: unknown; final?: unknown } }>('/memory/dictation-edit', async (request, reply) => {
+    const owner = await authenticate(request);
+    const { dictated, final } = request.body ?? {};
+    if (typeof dictated !== 'string' || typeof final !== 'string' || dictated.length > 4000 || final.length > 4000) return reply.code(400).send({ error: 'Send the dictated text and the final text.' });
+    return { learned: await memory.observeEdit(owner, dictated, final) };
+  });
   app.put<{ Body: { enabled?: unknown } }>('/memory/enabled', async (request, reply) => {
     const owner = await authenticate(request);
     if (typeof request.body?.enabled !== 'boolean') return reply.code(400).send({ error: 'Say whether learning is on or off.' });

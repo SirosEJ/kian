@@ -240,3 +240,18 @@ Use the real planning model on staging with Google Calendar and Jira connected. 
 | Edit a card and save: the old table is dropped (no stale before/after) and the safety checks stay | pending | |
 | Phone width: the table scrolls inside its box, the page does not scroll sideways | pending | |
 
+## SFT-281: dictation that learns
+
+Use the real microphone on staging (Chrome for live dictation; a browser without live dictation, or Safari, for recorded transcription). Run SFT-280's checks first so some names exist.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Say a name from your Jira or calendar (for example Solmaz or a colleague): it is spelled correctly more often than before | pending | |
+| Dictate a name wrongly spelled, fix it by hand, send. Do it again in a second message: Settings shows a spoken correction (for example "you say Seros") | pending | |
+| Dictate the same word again: it now appears already corrected | pending | |
+| A one-off fix of a different kind (a reworded sentence) is not learned | pending | |
+| Delete the correction in Settings: it stops being applied and does not come back until seen twice again | pending | |
+| Turn learning off in Settings: dictation no longer applies corrections or vocabulary | pending | |
+| Recorded transcription (no live dictation): names from the vocabulary are recognised and corrections applied | pending | |
+| Phone width: dictation and the editable text still work | pending | |
+

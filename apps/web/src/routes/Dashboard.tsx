@@ -43,6 +43,9 @@ function useVisibleHeight() {
 export function Dashboard() {
   const [tasks, setTasks] = useState<ReviewTask[]>([]);
   const [error, setError] = useState('');
+  // Spoken forms this user has corrected before: applied to live dictation as it appears.
+  const [corrections, setCorrections] = useState<{ from: string; to: string }[]>([]);
+  useEffect(() => { void apiRequest('/memory/dictation').then(d => setCorrections(d.corrections ?? [])).catch(() => {}); }, []);
   const [notice, setNotice] = useState('');
   const [messages, setMessages] = useState<Msg[]>([]);
   const [conversationId, setConversationId] = useState<string | null>(null);
@@ -140,7 +143,7 @@ export function Dashboard() {
     <div className="chat-composer"><div className="chat-column">
       {error && <Alert tone="error">{error}</Alert>}
       {notice && <Alert tone="info">{notice}</Alert>}
-      <PromptBox onSubmit={submit} transcribe={transcribe} />
+      <PromptBox onSubmit={submit} transcribe={transcribe} corrections={corrections} onDictationEdit={edit => void apiRequest('/memory/dictation-edit', 'POST', edit).then(() => apiRequest('/memory/dictation')).then(d => setCorrections(d.corrections ?? [])).catch(() => {})} />
     </div></div>
   </section>;
 }
