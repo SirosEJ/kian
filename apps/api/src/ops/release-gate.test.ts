@@ -103,5 +103,16 @@ describe('production workflow', () => {
       expect(workflow, file).toMatch(/GOOGLE_REDIRECT_URI=(\$BASE|\$\{PUBLIC_URL\})"/);
     }
   });
+
+  it('gives production its own OAuth apps: it never reads the staging client variables or secrets', () => {
+    const text = readFileSync(fileURLToPath(new URL('../../../../.github/workflows/production.yml', import.meta.url)), 'utf8');
+    // The repository-level KIAN_GOOGLE_CLIENT_ID and KIAN_JIRA_CLIENT_ID are staging's, and a production environment would silently inherit them.
+    expect(text).not.toMatch(/vars\.KIAN_(GOOGLE|JIRA)_CLIENT_ID/);
+    expect(text).toContain('vars.KIAN_PROD_GOOGLE_CLIENT_ID');
+    expect(text).toContain('vars.KIAN_PROD_JIRA_CLIENT_ID');
+    expect(text).toContain('kian-prod-google-client-secret');
+    expect(text).toContain('kian-prod-jira-client-secret');
+    expect(text).not.toMatch(/[^-]kian-(google|jira)-client-secret/);
+  });
 });
 
