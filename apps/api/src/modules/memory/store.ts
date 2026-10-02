@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { Queryable } from '@kian/db';
+import { replacementPairs, vocabularyPrompt, type Correction } from './dictation.js';
 
 export const MEMORY_LIMITS = { entries: 500, value: 80, alias: 60, detail: 80, relevant: 12, learnPerTurn: 3 } as const;
 export const MEMORY_KINDS = ['person', 'project', 'epic', 'calendar', 'meeting', 'correction'] as const;
@@ -107,8 +108,47 @@ export function createMemoryStore(db: Queryable) {
         return row ? toTerm(row) : null;
       } catch { return null; }
     },
-    async remove(ownerId: string, id: string): Promise<boolean> { return (await db.query('DELETE FROM memory_terms WHERE owner_id=$1 AND id=$2 RETURNING id', [ownerId, id])).rows.length > 0; },
-    async clear(ownerId: string): Promise<number> { return (await db.query('DELETE FROM memory_terms WHERE owner_id=$1 RETURNING id', [ownerId])).rows.length; },
+    async remove(ownerId: string, id: string): Promise<boolean> {
+      const gone = (await db.query('DELETE FROM memory_terms WHERE owner_id=$1 AND id=$2 RETURNING kind,value,alias', [ownerId, id])).rows[0] as { kind: string; value: string; alias: string | null } | undefined;
+      // A correction the user deleted must not come straight back from what was already seen.
+      if (gone?.kind === 'correction' && gone.alias) await db.query('DELETE FROM memory_corrections_seen WHERE owner_id=$1 AND spoken=lower($2) AND lower(written)=lower($3)', [ownerId, gone.alias, gone.value]).catch(() => undefined);
+      return Boolean(gone);
+    },
+    async clear(ownerId: string): Promise<number> {
+      await db.query('DELETE FROM memory_corrections_seen WHERE owner_id=$1', [ownerId]).catch(() => undefined);
+      return (await db.query('DELETE FROM memory_terms WHERE owner_id=$1 RETURNING id', [ownerId])).rows.length;
+    },
+    /**
+     * What dictation needs: the user's spoken-form corrections, and a short vocabulary prompt for the transcription model.
+     * Both are empty while learning is off.
+     */
+    async dictation(ownerId: string): Promise<{ enabled: boolean; corrections: Correction[]; prompt: string }> {
+      if (!(await enabled(db, ownerId))) return { enabled: false, corrections: [], prompt: '' };
+      const rows = (await db.query('SELECT kind,value,alias,detail FROM memory_terms WHERE owner_id=$1 ORDER BY uses DESC, last_seen DESC', [ownerId])).rows as MemoryHint[];
+      const seen = new Set<string>();
+      const corrections: Correction[] = [];
+      // Most used (then most recent) wins when two entries share a spoken form.
+      for (const r of (await db.query("SELECT value,alias FROM memory_terms WHERE owner_id=$1 AND kind='correction' AND alias IS NOT NULL ORDER BY last_seen DESC", [ownerId])).rows as { value: string; alias: string }[]) {
+        if (seen.has(r.alias.toLowerCase())) continue;
+        seen.add(r.alias.toLowerCase()); corrections.push({ from: r.alias, to: r.value });
+      }
+      return { enabled: true, corrections, prompt: vocabularyPrompt(rows.slice(0, 80)) };
+    },
+    /**
+     * The user edited dictated text before sending. Words changed into look-alike words are counted, and a change seen in two
+     * separate messages becomes a spoken-form correction. Returns how many corrections are new.
+     */
+    async observeEdit(ownerId: string, dictated: string, final: string): Promise<number> {
+      if (!(await enabled(db, ownerId))) return 0;
+      let learned = 0;
+      for (const pair of replacementPairs(dictated, final).slice(0, 5)) {
+        const row = (await db.query(
+          `INSERT INTO memory_corrections_seen(owner_id,spoken,written) VALUES ($1,lower($2),$3)
+           ON CONFLICT (owner_id,spoken,written) DO UPDATE SET seen=memory_corrections_seen.seen+1, last_seen=now() RETURNING seen`, [ownerId, pair.from, pair.to])).rows[0] as { seen: number };
+        if (row.seen >= 2) learned += await learnTerms(db, ownerId, [{ kind: 'correction', value: pair.to, alias: pair.from }], 'chat');
+      }
+      return learned;
+    },
   };
 }
 export type MemoryStore = ReturnType<typeof createMemoryStore>;

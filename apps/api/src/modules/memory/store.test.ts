@@ -7,7 +7,7 @@ import { registerMemoryRoutes } from './routes.js';
 
 async function setup() {
   const db = new PGlite();
-  for (const f of ['001_core.sql', '002_conversations.sql', '003_message_tasks.sql', '004_message_tables.sql', '005_memory.sql']) await db.exec(await readFile(new URL(`../../../../../packages/db/migrations/${f}`, import.meta.url), 'utf8'));
+  for (const f of ['001_core.sql', '002_conversations.sql', '003_message_tasks.sql', '004_message_tables.sql', '005_memory.sql', '006_memory_corrections.sql']) await db.exec(await readFile(new URL(`../../../../../packages/db/migrations/${f}`, import.meta.url), 'utf8'));
   await db.query("INSERT INTO users(id) VALUES ('alice'),('bob')");
   return { db, store: createMemoryStore(db) };
 }
