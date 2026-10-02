@@ -27,7 +27,7 @@ export function MemorySettings({ initial }: { initial?: { enabled: boolean; term
   const groups = groupMemory(state?.terms ?? []);
   return <Card>
     <h3>What Kian remembers</h3>
-    <p className="muted">Names, projects and epics that Kian has seen in your Jira, your calendar and emails you sent, and corrections you gave it, so it understands "Sol" or "the onboarding epic". Only you can see this. It is deleted with your account. It is never read from email bodies or event descriptions.</p>
+    <p className="muted">Names, projects and epics that Kian has seen in your Jira, your calendar and emails you sent, and fixes you make to words you dictated, so it understands "Sol" or "the onboarding epic". Dictation uses the same list to spell your names right. Only you can see this. It is deleted with your account. It is never read from email bodies or event descriptions.</p>
     {error && <Alert tone="error">{error}</Alert>}
     {state && <label className="checkbox"><input type="checkbox" checked={state.enabled} onChange={e => void run(() => apiRequest('/memory/enabled', 'PUT', { enabled: e.target.checked }), 'Could not change that setting.')} />Let Kian learn and use what it remembers</label>}
     {state && !state.enabled && <p className="muted">Learning is off: Kian remembers nothing new and does not use these entries until you turn it back on.</p>}

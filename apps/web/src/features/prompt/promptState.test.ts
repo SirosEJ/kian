@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { canSend, collectTranscript, initialPrompt, joinTranscript, promptReducer, type PromptAction, type PromptState } from './promptState.js';
+import { canSend, collectTranscript, dictationEdit, initialPrompt, joinTranscript, promptReducer, type PromptAction, type PromptState } from './promptState.js';
 
 const run = (actions: PromptAction[], from: PromptState = initialPrompt) => actions.reduce(promptReducer, from);
 
@@ -90,5 +90,23 @@ describe('live dictation', () => {
     expect(sending.text).toBe('');
     const failed = run([{ type: 'send-failed', message: 'x' }], sending);
     expect(failed).toMatchObject({ status: 'idle', text: 'Book a meeting', error: 'x' });
+  });
+});
+
+describe('noticing what the user changed after dictating', () => {
+  it('remembers the dictated text when speech ends, live or recorded, and clears it after a send', () => {
+    let state = run([{ type: 'record-start' }, { type: 'live', text: 'email Seros' }, { type: 'live-end' }]);
+    expect(state.dictated).toBe('email Seros');
+    state = run([{ type: 'edit', text: 'email Siros' }], state);
+    expect(state.dictated).toBe('email Seros');
+    state = run([{ type: 'record-start' }, { type: 'record-stop' }, { type: 'transcribed', text: 'ask Sol man' }], initialPrompt);
+    expect(state.dictated).toBe('ask Sol man');
+    expect(run([{ type: 'send-start' }, { type: 'send-ok' }], state).dictated).toBe('');
+  });
+  it('reports an edit only when dictated text was changed before sending', () => {
+    expect(dictationEdit('email Seros', 'email Siros')).toEqual({ dictated: 'email Seros', final: 'email Siros' });
+    expect(dictationEdit('email Seros', ' email Seros ')).toBeNull();
+    expect(dictationEdit('', 'typed only')).toBeNull();
+    expect(dictationEdit('something', '')).toBeNull();
   });
 });

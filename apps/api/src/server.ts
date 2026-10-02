@@ -68,6 +68,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       save: (ownerId, text, tasks) => saveProposals(pool, ownerId, text, tasks),
       converse: conversations.converse,
       conversations,
+      dictation: async ownerId => { const { prompt, corrections } = await createMemoryStore(pool).dictation(ownerId); return { prompt, corrections }; },
     });
   }
   if (pool) registerAccountRoutes(app,pool,authenticate);

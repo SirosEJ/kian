@@ -2,6 +2,7 @@ import type { FastifyInstance } from 'fastify';
 import type { TaskProposal } from '@kian/contracts';
 import type { PlanResult } from './plan.js';
 import OpenAI, { toFile } from 'openai';
+import { applyCorrections, type Correction } from '../memory/dictation.js';
 import { ConversationError, type Converse, type ConversationSummary, type StoredMessage } from '../conversations/service.js';
 
 export type TaskRoutes = {
@@ -11,13 +12,15 @@ export type TaskRoutes = {
   /** When set, messages are part of a saved conversation (plan and save are then handled by it). */
   converse?: Converse;
   conversations?: { latest: (ownerId: string) => Promise<{ conversationId: string | null; messages: StoredMessage[] }>; get?: (ownerId: string, id: string) => Promise<{ conversationId: string; messages: StoredMessage[] }>; list?: (ownerId: string) => Promise<ConversationSummary[]>; create: (ownerId: string) => Promise<string> };
-  transcribe?: (audio: Buffer, mimeType: string) => Promise<string>;
+  transcribe?: (audio: Buffer, mimeType: string, prompt?: string) => Promise<string>;
+  /** The user's dictation help (SFT-281): a vocabulary prompt for the transcription model and spoken-form corrections to apply to its text. */
+  dictation?: (ownerId: string) => Promise<{ prompt: string; corrections: Correction[] }>;
 };
 
-async function defaultTranscribe(audio: Buffer, mimeType: string): Promise<string> {
+async function defaultTranscribe(audio: Buffer, mimeType: string, prompt?: string): Promise<string> {
   if (!process.env.OPENAI_API_KEY) throw new Error('Transcription is not configured');
   const file = await toFile(audio, mimeType === 'audio/mp4' ? 'recording.mp4' : 'recording.webm', { type: mimeType });
-  const result = await new OpenAI({ apiKey: process.env.OPENAI_API_KEY }).audio.transcriptions.create({ model: 'gpt-4o-transcribe', file });
+  const result = await new OpenAI({ apiKey: process.env.OPENAI_API_KEY }).audio.transcriptions.create({ model: 'gpt-4o-transcribe', file, ...(prompt ? { prompt } : {}) });
   return result.text;
 }
 
@@ -61,13 +64,18 @@ export function registerTaskRoutes(app: FastifyInstance, deps: TaskRoutes) {
   });
 
   app.post<{Body:{audioBase64?:string;mimeType?:string}}>('/transcriptions', { bodyLimit: 16 * 1024 * 1024 }, async (request, reply) => {
-    await deps.authenticate(request);
+    const ownerId = await deps.authenticate(request);
     const { audioBase64 } = request.body || {};
     // Browsers label recordings like "audio/webm;codecs=opus"; only the base type matters.
     const mimeType = (request.body?.mimeType || '').split(';')[0].trim().toLowerCase();
     if (!audioBase64 || !/^[A-Za-z0-9+/]+={0,2}$/.test(audioBase64) || !['audio/webm','audio/mp4'].includes(mimeType)) return reply.code(400).send({ error: 'Supported audio recording required' });
     if (audioBase64.length > Math.ceil(10 * 1024 * 1024 * 4 / 3)) return reply.code(413).send({ error: 'Recording exceeds 10 MB' });
-    try { return { text: await (deps.transcribe || defaultTranscribe)(Buffer.from(audioBase64, 'base64'), mimeType) }; }
+    // The user's own names help the transcription model, and words they have corrected before come out in their spelling. Failing to load either never blocks dictation.
+    const help = await deps.dictation?.(ownerId).catch(() => null);
+    try {
+      const text = await (deps.transcribe || defaultTranscribe)(Buffer.from(audioBase64, 'base64'), mimeType, help?.prompt || undefined);
+      return { text: help ? applyCorrections(text, help.corrections) : text };
+    }
     catch { return reply.code(502).send({ error: 'Transcription failed. Please retry or type the instruction.' }); }
   });
 }

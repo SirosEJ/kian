@@ -1,5 +1,6 @@
 export type PromptStatus = 'idle' | 'recording' | 'transcribing' | 'sending';
-export type PromptState = { text: string; status: PromptStatus; error: string; base: string; draft: string };
+/** `dictated`: the text as it stood when the last dictation ended, so words the user changes before sending can be noticed. */
+export type PromptState = { text: string; status: PromptStatus; error: string; base: string; draft: string; dictated: string };
 export type PromptAction =
   | { type: 'edit'; text: string }
   | { type: 'record-start' }
@@ -12,7 +13,7 @@ export type PromptAction =
   | { type: 'send-ok' }
   | { type: 'send-failed'; message: string };
 
-export const initialPrompt: PromptState = { text: '', status: 'idle', error: '', base: '', draft: '' };
+export const initialPrompt: PromptState = { text: '', status: 'idle', error: '', base: '', draft: '', dictated: '' };
 
 /** Append dictated speech to whatever the user has already typed, separated by one space. */
 export function joinTranscript(current: string, transcript: string): string {
@@ -43,12 +44,18 @@ export function promptReducer(state: PromptState, action: PromptAction): PromptS
     case 'record-start': return canRecord(state) ? { ...state, status: 'recording', error: '', base: state.text } : state;
     case 'record-stop': return state.status === 'recording' ? { ...state, status: 'transcribing' } : state;
     case 'live': return state.status === 'recording' ? { ...state, text: joinTranscript(state.base, action.text) } : state;
-    case 'live-end': return state.status === 'recording' ? { ...state, status: 'idle' } : state;
-    case 'transcribed': return { ...state, status: state.status === 'transcribing' ? 'idle' : state.status, text: joinTranscript(state.text, action.text) };
+    case 'live-end': return state.status === 'recording' ? { ...state, status: 'idle', dictated: state.text } : state;
+    case 'transcribed': { const text = joinTranscript(state.text, action.text); return { ...state, status: state.status === 'transcribing' ? 'idle' : state.status, text, dictated: text }; }
     case 'voice-failed': return { ...state, status: state.status === 'sending' ? 'sending' : 'idle', error: action.message };
     // The box empties as soon as the message is sent, like a chat app; the text is kept aside in case sending fails.
     case 'send-start': return canSend(state) ? { ...state, status: 'sending', error: '', draft: state.text, text: '' } : state;
     case 'send-ok': return state.status === 'sending' ? { ...initialPrompt, text: state.text } : state;
     case 'send-failed': return state.status === 'sending' ? { ...state, status: 'idle', error: action.message, text: joinTranscript(state.draft, state.text), draft: '' } : state;
   }
+}
+
+/** What to tell the server after a send: the dictated text and what was actually sent, only when the user changed it. */
+export function dictationEdit(dictated: string, sent: string): { dictated: string; final: string } | null {
+  const a = dictated.trim(), b = sent.trim();
+  return a && b && a !== b ? { dictated: a, final: b } : null;
 }
