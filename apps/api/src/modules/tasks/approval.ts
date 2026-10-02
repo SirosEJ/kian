@@ -22,6 +22,9 @@ export function missingDetails(action: string, fields: Record<string, unknown> |
     if (blank(f.end)) missing.push('end time');
   } else if (action === 'jira.create') {
     if (blank(f.summary)) missing.push('title');
+  } else if (action === 'jira.transition') {
+    if (blank(f.issueKey)) missing.push('issue');
+    if (blank(f.toStatus)) missing.push('new status');
   }
   return missing;
 }

@@ -199,7 +199,7 @@ describe('conversation with Kian', () => {
     const lookups = [{ type: 'search' as const, project: 'SFT' }];
     const port = (run: JiraLookupPort['run'], connected = true): JiraLookupPort & { calls: unknown[][] } => {
       const calls: unknown[][] = [];
-      return { calls, info: async () => ({ connected, defaultProject: 'SFT' }), run: async (...args) => { calls.push(args); return run(...args); } };
+      return { calls, info: async () => ({ connected, defaultProject: 'SFT' }), run: async (...args) => { calls.push(args); return run(...args); }, checkTransition: async () => null };
     };
 
     it('runs the lookups, lets the model answer from the results, and keeps the tables with the message', async () => {
@@ -295,13 +295,63 @@ describe('conversation with Kian', () => {
     it('lets the model see which issues the last answer showed, so it can look them up again', async () => {
       const histories: Thread['history'][] = [];
       const plan: Plan = async (_o, _t, _l, _z, thread) => { histories.push(thread.history); return { reply: 'Here they are.', tasks: [], pending: 'keep', lookups: thread.history.length === 0 && !thread.lookupResults ? [{ type: 'search', project: 'SFT' }] : [] }; };
-      const jira: JiraLookupPort = { info: async () => ({ connected: true, defaultProject: null }), run: async () => ({ tables: [table], digest: [], issuesRead: 2, notes: [] }) };
+      const jira: JiraLookupPort = { info: async () => ({ connected: true, defaultProject: null }), run: async () => ({ tables: [table], digest: [], issuesRead: 2, notes: [] }), checkTransition: async () => null };
       const { db, service } = await setup(plan, jira);
       const first = await service.converse('alice', input('list the stories'));
       await service.converse('alice', input('who created them?', first.conversationId));
       const last = histories.at(-1)!;
       expect(last.find(m => m.role === 'assistant')!.content).toBe('Here they are.\n[Shown earlier: Issues: SFT-245, SFT-244]');
       expect(last.find(m => m.role === 'user')!.content).toBe('list the stories');
+      await db.close();
+    });
+  });
+
+  describe('Jira status changes', () => {
+    const move = (key: string, to = 'In Progress'): TaskProposal => ({ id: `m-${key}`, action: 'jira.transition', connectionId: null, destination: null, parameters: { issueKey: key, toStatus: to }, uncertainties: [], state: 'proposed' }) as TaskProposal;
+    const fakeJira = (check: JiraLookupPort['checkTransition']): JiraLookupPort => ({ info: async () => ({ connected: true, defaultProject: 'SFT' }), run: async () => null, checkTransition: check });
+    const withJira = async (plan: Plan, check: JiraLookupPort['checkTransition']) => {
+      const ctx = await setup(plan, fakeJira(check));
+      await ctx.db.query("INSERT INTO connections(id,owner_id,provider,display_name,settings) VALUES ('jira','alice','jira','Jira Cloud',$1)", [JSON.stringify({ siteId: 's', siteUrl: 'https://demo.atlassian.net', destination: 'SFT' })]);
+      return ctx;
+    };
+    const ok = (title: string, from = 'To Do'): Awaited<ReturnType<JiraLookupPort['checkTransition']>> => ({ ok: true, title, from, to: 'In Progress', projectKey: 'SFT' });
+
+    it('shows each move as a card with its current status and title, and only approving it queues the write', async () => {
+      const { db, service, approvals } = await withJira(async () => ({ reply: 'Prepared.', tasks: [move('SFT-1'), move('SFT-2')], pending: 'keep' }), async (_o, key) => ok(`Title ${key}`));
+      const result = await service.converse('alice', input('move 1 and 2 to In Progress'));
+      expect(result.tasks.map(t => t.state)).toEqual(['proposed', 'proposed']);
+      const stored = (await db.query("SELECT parameters FROM tasks WHERE action='jira.transition' ORDER BY created_at,id")).rows;
+      expect((stored[0] as { parameters: unknown }).parameters).toMatchObject({ destination: 'SFT', connectionId: 'jira', fields: { issueKey: 'SFT-1', toStatus: 'In Progress', fromStatus: 'To Do', issueTitle: 'Title SFT-1' }, uncertainties: [] });
+      expect((await db.query("SELECT count(*)::int AS n FROM tasks WHERE state='queued'")).rows[0]).toEqual({ n: 0 });
+      const queued = await approvals.decideTask('alice', result.tasks[0].id, 1, 'approve');
+      expect(queued.state).toBe('queued');
+      expect(await stateOf(db, result.tasks[1].id)).toBe('proposed');
+      await db.close();
+    });
+
+    it('cannot approve a move Jira does not allow, and says why on the card', async () => {
+      const { db, service, approvals } = await withJira(async () => ({ reply: 'Prepared.', tasks: [move('SFT-1', 'Done')], pending: 'keep' }), async () => ({ ok: false, reason: 'Jira does not allow moving SFT-1 from To Do to Done right now. Available: In Progress.' }));
+      const result = await service.converse('alice', input('close SFT-1'));
+      expect(result.tasks[0].uncertainties).toEqual(['Jira does not allow moving SFT-1 from To Do to Done right now. Available: In Progress.']);
+      await expect(approvals.decideTask('alice', result.tasks[0].id, 1, 'approve')).rejects.toMatchObject({ statusCode: 422 });
+      expect(await stateOf(db, result.tasks[0].id)).toBe('proposed');
+      await db.close();
+    });
+
+    it('is never run automatically, even if a trust rule exists for the action', async () => {
+      const { db, service } = await withJira(async () => ({ reply: 'Prepared.', tasks: [move('SFT-1')], pending: 'keep' }), async (_o, key) => ok(key));
+      await db.query("INSERT INTO trust_rules(id,owner_id,connection_id,action,constraints) VALUES ('r','alice','jira','jira.transition',$1)", [JSON.stringify({ destinations: ['SFT'] })]);
+      const result = await service.converse('alice', input('start SFT-1'));
+      expect(result.tasks[0].state).toBe('proposed');
+      expect((await db.query("SELECT count(*)::int AS n FROM activity WHERE event='task.trusted'")).rows[0]).toEqual({ n: 0 });
+      await db.close();
+    });
+
+    it('asks Jira about the asking user only, and passes the key the planner resolved', async () => {
+      const asked: unknown[][] = [];
+      const { db, service } = await withJira(async () => ({ reply: 'Prepared.', tasks: [move('269')], pending: 'keep' }), async (...args) => { asked.push(args); return ok('T'); });
+      await service.converse('alice', input('change 269 to In Progress'));
+      expect(asked).toEqual([['alice', 'SFT-269', 'In Progress']]);
       await db.close();
     });
   });

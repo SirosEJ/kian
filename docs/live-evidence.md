@@ -146,3 +146,20 @@ Use the real planning model and the owner's real Jira site on the story preview 
 | Phone width: tables readable, page does not scroll sideways | pending (checked in a mock page: page width stays 390, wide tables scroll inside their box) | |
 | Another account never sees these answers or tables | pending (automated tests cover the isolation) | |
 
+## SFT-275: change the status of Jira issues and epics
+
+Use the real planning model and the owner's real Jira site on staging (Jira connected; project chosen in Settings). Use a throwaway issue or epic you can move back.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| "change 269 to In Progress": one card "Move SFT-269 from To Do to In Progress" with the issue title; approving it moves the issue in Jira | pending | |
+| The same for an epic | pending | |
+| A move the workflow does not allow (for example straight to Done): the card names the statuses that are available and cannot be approved | pending | |
+| An issue already in the wanted status: the card says so and cannot be approved | pending | |
+| An issue in another project: the card refuses and names the project chosen in Settings | pending | |
+| After a list: "change them all to In Progress": one card per issue; **Approve all N** lists the count, approves them one by one, and Jira shows each moved | pending | |
+| A card with an open question is left out of Approve all and says why | pending | |
+| Activity shows each change with its result and a link | pending | |
+| Status changes are never offered as "always do this" | pending | |
+| Phone width: cards and the Approve all confirmation are readable (checked in a mock page: no sideways scrolling) | pending | |
+

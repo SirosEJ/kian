@@ -3,12 +3,13 @@ import { JiraReader } from '@kian/connectors';
 import { getJiraConnection, type JiraConfig } from '../connections/jira-routes.js';
 import type { JiraLookupPort } from '../conversations/service.js';
 import { createInsights, type Reader } from './insights.js';
+import { checkTransition, type TransitionCheck, type TransitionReader } from './transitions.js';
 
 /**
  * Connects the conversation to the signed-in user's own Jira connection. The user id picks the connection in every query,
  * so one user's question can never run through another user's token. A site must have been chosen in Settings.
  */
-export function createJiraLookupPort(db: Queryable, config: JiraConfig, reader: Reader = new JiraReader()): JiraLookupPort {
+export function createJiraLookupPort(db: Queryable, config: JiraConfig, reader: Reader & TransitionReader = new JiraReader()): JiraLookupPort {
   const insights = createInsights(reader);
   async function connectionOf(ownerId: string) {
     const row = (await db.query(
@@ -19,6 +20,16 @@ export function createJiraLookupPort(db: Queryable, config: JiraConfig, reader: 
     async info(ownerId) {
       const row = await connectionOf(ownerId);
       return { connected: Boolean(row), defaultProject: row?.settings.destination ?? null };
+    },
+    async checkTransition(ownerId, issueKey, toStatus): Promise<TransitionCheck | null> {
+      const row = await connectionOf(ownerId);
+      if (!row) return null;
+      try {
+        const connection = await getJiraConnection(db, ownerId, row.id, config);
+        return await checkTransition(reader, connection, row.settings.destination ?? null, issueKey, toStatus);
+      } catch (error) {
+        return { ok: false, reason: (error as { statusCode?: number }).statusCode === 422 ? String((error as Error).message) : 'Jira could not be reached to check this move. Try again in a moment.' };
+      }
     },
     async run(ownerId, lookups, today) {
       const row = await connectionOf(ownerId);

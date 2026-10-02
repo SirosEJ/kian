@@ -68,4 +68,17 @@ describe('Jira read-only reader', () => {
     expect(adfToText({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'a' }, { type: 'hardBreak' }, { type: 'text', text: 'b' }] }] })).toBe('a\nb');
     expect(adfToText({ type: 'doc', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'x'.repeat(5000) }] }] }).length).toBe(2000);
   });
+
+  it('reads an issue\'s title, status and project, and the moves Jira allows, with GET only', async () => {
+    const methods: string[] = [];
+    const request = vi.fn(async (url: string, init?: RequestInit) => {
+      methods.push(init?.method ?? 'GET');
+      return url.includes('/transitions') ? Response.json({ transitions: [{ id: '21', name: 'Start', to: { name: 'In Progress' } }, { id: '5', name: 'Done' }] }) : Response.json({ key: 'SFT-269', fields: { summary: 'Scrum Playbook', status: { name: 'To Do' }, project: { key: 'SFT' } } });
+    });
+    const reader = new JiraReader(request as typeof fetch);
+    expect(await reader.brief(connection, 'SFT-269')).toEqual({ key: 'SFT-269', summary: 'Scrum Playbook', status: 'To Do', projectKey: 'SFT' });
+    expect(await reader.transitions(connection, 'SFT-269')).toEqual([{ id: '21', name: 'Start', to: 'In Progress' }, { id: '5', name: 'Done', to: 'Done' }]);
+    expect(new Set(methods)).toEqual(new Set(['GET']));
+  });
 });
+

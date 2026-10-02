@@ -22,10 +22,15 @@ export function createProviderExecutor(db:Queryable,key:Buffer,google?:GoogleCon
     }
     if(task.action.startsWith('jira.')) {
       if(!jira || connection.provider!=='jira') return {status:'failed',error:'Jira is not configured for this task.'};
-      if(!p._jiraSiteId || p._jiraSiteId!==connection.settings.siteId || !p.issueTypeId) return {status:'failed',error:'Jira mapping changed or is incomplete. Edit and review this task again.'};
+      if(!p._jiraSiteId || p._jiraSiteId!==connection.settings.siteId || (task.action!=='jira.transition' && !p.issueTypeId)) return {status:'failed',error:'Jira mapping changed or is incomplete. Edit and review this task again.'};
       const adapter=new JiraConnector(),authorized=await getJiraConnection(db,owner,proposal.connectionId,jira);
       if(authorized.siteId!==p._jiraSiteId) return {status:'failed',error:'Jira site changed. Edit and review this task again.'};
       await adapter.connect(authorized);
+      if(task.action==='jira.transition') {
+        const move={action:'jira.transition' as const,projectKey:proposal.destination,issueKey:String(p.issueKey ?? ''),toStatus:String(p.toStatus ?? '')};
+        try {adapter.validate(move);} catch {return {status:'failed',error:'Check the issue key and the status to move it to. The issue must be in the project selected in Settings.'};}
+        return adapter.execute(authorized,move,idempotencyKey);
+      }
       const fields=typeof p.fields==='object' && p.fields!==null && !Array.isArray(p.fields) ? {...p.fields as Record<string,unknown>}:{};
       if(p.summary!==undefined) fields.summary=p.summary;
       if(p.description!==undefined) fields.description=p.description;

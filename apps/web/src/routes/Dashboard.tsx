@@ -7,6 +7,7 @@ import { Link } from '../layout/Link.js';
 import { describePlanResult } from '../features/prompt/planResult.js';
 import { Thread, type ChatMessage } from '../features/conversation/Thread.js';
 import { Welcome } from '../features/conversation/Welcome.js';
+import { ApproveAll } from '../features/conversation/ApproveAll.js';
 import { HistoryMenu, type ConversationSummary } from '../features/conversation/HistoryMenu.js';
 import { isNearBottom, scrollDecision } from '../features/conversation/scroll.js';
 
@@ -132,7 +133,7 @@ export function Dashboard() {
       <div className="chat-scroll" ref={scroller} onScroll={onScroll}><div className="chat-column">
         {empty && <Welcome onPick={text => void submit(text).catch(() => setError('Could not reach Kian. Try again.'))} disabled={thinking} />}
         {empty && waiting.length > 0 && <section aria-label="Waiting for you"><h3>Waiting for your decision</h3>{waiting.map(task => <TaskReview key={task.id} task={task} onChange={onChange} />)}</section>}
-        <Thread messages={messages} thinking={thinking} renderTask={task => <TaskReview task={task} onChange={onChange} />} />
+        <Thread messages={messages} thinking={thinking} renderTask={task => <TaskReview task={task} onChange={onChange} />} renderTurnFooter={message => message.tasks && message.tasks.length > 1 ? <ApproveAll tasks={message.tasks} onDecided={(task, update) => onChange({ ...task, ...update })} /> : null} />
       </div></div>
       {showJump && <Button className="jump" variant="secondary" onClick={jump}>Jump to latest</Button>}
     </div>

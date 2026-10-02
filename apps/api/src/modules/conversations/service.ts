@@ -4,6 +4,7 @@ import type { TaskProposal } from '@kian/contracts';
 import type { PendingSummary, PlanResult, Thread } from '../tasks/plan.js';
 import type { Lookup } from '../jira-insights/lookups.js';
 import type { LookupOutcome, ResultTable } from '../jira-insights/insights.js';
+import { prepareTransitions, type TransitionChecker } from '../jira-insights/transitions.js';
 import { saveProposalsIn } from '../tasks/store.js';
 import { transaction } from '../transaction.js';
 
@@ -21,6 +22,8 @@ export type StoredMessage = { id: string; role: 'user' | 'assistant'; content: s
 export type JiraLookupPort = {
   info(ownerId: string): Promise<{ connected: boolean; defaultProject: string | null }>;
   run(ownerId: string, lookups: Lookup[], today: string): Promise<LookupOutcome | null>;
+  /** Asks Jira whether a proposed status change is possible now (read-only). Null when no Jira site is connected. */
+  checkTransition: TransitionChecker;
 };
 export type ConversationSummary = { id: string; createdAt: string; title: string };
 export type Converse = (ownerId: string, input: { text: string; conversationId?: string; locale: string; timeZone: string }) => Promise<{ conversationId: string; reply: string; tasks: TaskProposal[]; tables: ResultTable[] }>;
@@ -91,6 +94,9 @@ export function createConversationService(db: Queryable, plan: Plan, jira?: Jira
         tables = outcome.tables;
       }
     }
+
+    // Status changes are checked with Jira before they can be approved: current status, title, project, and whether Jira offers the move.
+    if (result.tasks.some(t => t.action === 'jira.transition')) result = { ...result, tasks: await prepareTransitions(jira?.checkTransition, ownerId, result.tasks, jiraInfo.defaultProject) };
 
     return transaction(db, async client => {
       const tasks = await saveProposalsIn(client, ownerId, text, result.tasks, id);

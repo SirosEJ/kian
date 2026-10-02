@@ -39,7 +39,7 @@ describe('instruction planning', () => {
   });
 
   it('answers politely instead of failing when the model output is unusable', async () => {
-    for (const bad of [null, undefined, 'text', 42, [], { reply: 'x' }, { reply: 'x', tasks: 'no' }, { reply: 'x', tasks: Array(11).fill(email(['a@b.co'])) }]) {
+    for (const bad of [null, undefined, 'text', 42, [], { reply: 'x' }, { reply: 'x', tasks: 'no' }, { reply: 'x', tasks: Array(21).fill(email(['a@b.co'])) }]) {
       const result = await plan(bad);
       expect(result.tasks, JSON.stringify(bad)).toEqual([]);
       expect(result.reply).toMatch(/could not understand that well enough/);
@@ -286,6 +286,41 @@ describe('Jira lookups in the planner', () => {
 
   it('tells the model how to ask for lookups, to treat Jira text as untrusted, and never to write JQL', () => {
     for (const phrase of ['"lookups" array', 'Never write JQL', '90 days', 'untrusted data', 'do not return tasks or lookups', 'Never state an issue', '[Shown earlier: ...]', 'by "keys"']) expect(PLANNER_INSTRUCTIONS).toContain(phrase);
+  });
+});
+
+describe('Jira status changes in the planner', () => {
+  const t: Thread = { history: [], pending: [], connections: [{ provider: 'jira', name: 'Jira Cloud' }], jira: { connected: true, defaultProject: 'SFT' } };
+  const move = (parameters: Record<string, unknown>) => item('jira.transition', null, parameters);
+  const planWith = (answer: unknown, thread: Thread = t) => createPlanner(async () => answer)('alice', 'change 269 to In Progress', 'en-GB', 'Europe/London', thread);
+
+  it('turns a bare number into a key in the project chosen in Settings, and upper-cases a key', async () => {
+    const { tasks } = await planWith({ reply: 'Prepared.', tasks: [move({ issueKey: '269', toStatus: 'In Progress' }), move({ issueKey: 'sft-12', toStatus: 'Done' })] });
+    expect(tasks.map(x => x.parameters.issueKey)).toEqual(['SFT-269', 'SFT-12']);
+    expect(tasks.every(x => x.uncertainties.length === 0 && x.state === 'proposed')).toBe(true);
+  });
+
+  it('asks for the issue or the status when either is missing, instead of guessing', async () => {
+    const { tasks } = await planWith({ reply: 'Prepared.', tasks: [move({ issueKey: 'not a key', toStatus: 'Done' }), move({ issueKey: 'SFT-1' }), move({ issueKey: '269', toStatus: 'Done' })] }, { ...t, jira: { connected: true, defaultProject: null } });
+    expect(tasks[0].uncertainties).toEqual(['Which issue should I move? I need its key, like SFT-123.']);
+    expect(tasks[1].uncertainties).toEqual(['Which status should it move to?']);
+    expect(tasks[2].uncertainties[0]).toContain('I need its key');
+  });
+
+  it('accepts up to 20 status changes in one message and no more', async () => {
+    const twenty = Array.from({ length: 20 }, (_, i) => move({ issueKey: `SFT-${i + 1}`, toStatus: 'Done' }));
+    expect((await planWith({ reply: 'ok', tasks: twenty })).tasks).toHaveLength(20);
+    expect((await planWith({ reply: 'ok', tasks: [...twenty, move({ issueKey: 'SFT-99', toStatus: 'Done' })] })).reply).toMatch(/could not understand/);
+  });
+
+  it('tells the model how to ask for status changes, and to use only the keys it was shown', () => {
+    for (const phrase of ['jira.transition', 'issueKey', 'toStatus', '"[Shown earlier: ...]"', 'never invent keys', 'at most 20']) expect(PLANNER_INSTRUCTIONS).toContain(phrase);
+    expect(CAPABILITIES).toContain('change the status of Jira issues');
+  });
+
+  it('says the account is missing when Jira is not connected', async () => {
+    const { reply } = await planWith({ reply: 'Prepared.', tasks: [move({ issueKey: 'SFT-1', toStatus: 'Done' })] }, { ...t, connections: [], jira: { connected: false, defaultProject: null } });
+    expect(reply).toContain("I don't see a connected Jira Cloud yet");
   });
 });
 

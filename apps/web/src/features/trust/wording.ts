@@ -1,5 +1,5 @@
 // Plain-language wording for approvals, trust and the activity log, kept in one place so the screens never disagree.
-export const actionNames: Record<string, string> = { 'email.send': 'Send email', 'calendar.create': 'Create calendar event', 'calendar.update': 'Update calendar event', 'jira.create': 'Create Jira issue', 'jira.update': 'Update Jira issue' };
+export const actionNames: Record<string, string> = { 'email.send': 'Send email', 'calendar.create': 'Create calendar event', 'calendar.update': 'Update calendar event', 'jira.create': 'Create Jira issue', 'jira.update': 'Update Jira issue', 'jira.transition': 'Change Jira status' };
 
 const phrases: Record<string, (destination: string) => string> = {
   'email.send': destination => `send email to ${destination}`,
@@ -17,7 +17,7 @@ export function trustPrompt(action: string, destination: string, connectionName?
 
 /** Why a task cannot be trusted, when the box is off. */
 export function trustUnavailable(action: string): string | null {
-  return action.endsWith('.update') ? 'Changes to existing items always need your approval.' : null;
+  return action.endsWith('.update') || action === 'jira.transition' ? 'Changes to existing items always need your approval.' : null;
 }
 
 export function ruleSentence(rule: { action: string; constraints: { destinations: string[] }; connection_name?: string | null }): string {

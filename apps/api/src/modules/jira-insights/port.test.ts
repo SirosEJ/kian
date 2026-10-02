@@ -5,6 +5,7 @@ import { randomBytes } from 'node:crypto';
 import { encryptSecret } from '../connections/routes.js';
 import { createJiraLookupPort } from './port.js';
 import type { Reader } from './insights.js';
+import type { TransitionReader } from './transitions.js';
 
 const key = randomBytes(32);
 const config = { clientId: 'id', clientSecret: 'secret', redirectUri: 'https://x/', encryptionKey: key };
@@ -15,9 +16,11 @@ async function setup() {
   for (const f of ['001_core.sql', '002_conversations.sql', '003_message_tasks.sql', '004_message_tables.sql']) await db.exec(await readFile(new URL(`../../../../../packages/db/migrations/${f}`, import.meta.url), 'utf8'));
   await db.query("INSERT INTO users(id) VALUES ('alice'),('bob')");
   const calls: { token: string; site: string; jql?: string }[] = [];
-  const reader: Reader = {
+  const reader: Reader & TransitionReader = {
     search: async (c, jql) => { calls.push({ token: c.accessToken, site: c.siteId, jql }); return { issues: [], truncated: false }; },
     issue: async () => { throw new Error('unused'); },
+    brief: async () => { throw new Error('unused'); },
+    transitions: async () => { throw new Error('unused'); },
   };
   return { db, calls, port: createJiraLookupPort(db, config, reader) };
 }
@@ -61,7 +64,7 @@ describe('Jira lookups through the user\'s own connection', () => {
     for (const f of ['001_core.sql', '002_conversations.sql', '003_message_tasks.sql', '004_message_tables.sql']) await db.exec(await readFile(new URL(`../../../../../packages/db/migrations/${f}`, import.meta.url), 'utf8'));
     await db.query("INSERT INTO users(id) VALUES ('alice')");
     await db.query("INSERT INTO connections(id,owner_id,provider,display_name,secret_ciphertext,settings) VALUES ('c1','alice','jira','Jira Cloud',$1,$2)", [tokens('t', Date.now() - 1000), JSON.stringify({ siteId: 's', siteUrl: 'https://a.atlassian.net' })]);
-    const port = createJiraLookupPort(db, { ...config, request: (async () => new Response('', { status: 400 })) as typeof fetch }, { search: async () => ({ issues: [], truncated: false }), issue: async () => { throw new Error('unused'); } });
+    const port = createJiraLookupPort(db, { ...config, request: (async () => new Response('', { status: 400 })) as typeof fetch }, { search: async () => ({ issues: [], truncated: false }), issue: async () => { throw new Error('unused'); }, brief: async () => { throw new Error('unused'); }, transitions: async () => { throw new Error('unused'); } });
     const outcome = await port.run('alice', lookups, '2026-10-02');
     expect(outcome?.notes[0]).toContain('Reconnect');
     expect(outcome?.tables).toEqual([]);

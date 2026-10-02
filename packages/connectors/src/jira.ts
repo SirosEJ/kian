@@ -1,7 +1,7 @@
 import type { Connector,Destination,ExecutionResult } from '@kian/contracts';
 
 export type JiraConnection={accessToken:string;siteId:string;siteUrl:string};
-export type JiraCommand={action:'jira.create'|'jira.update';projectKey:string;issueTypeId?:string;issueKey?:string;fields:Record<string,unknown>};
+export type JiraCommand={action:'jira.create'|'jira.update';projectKey:string;issueTypeId?:string;issueKey?:string;fields:Record<string,unknown>}|{action:'jira.transition';projectKey:string;issueKey:string;toStatus:string};
 export type JiraSite={id:string;name:string;url:string;scopes:string[]};
 type Field={fieldId?:string;required?:boolean;hasDefaultValue?:boolean};
 
@@ -51,14 +51,40 @@ export class JiraConnector implements Connector<JiraConnection,JiraCommand> {
     if(body.isLast===false) throw new Error('Too many fields for this issue type');
     return body.fields || [];
   }
+  /** A status change: the issue must be in the approved project and the target status must be a plain name. */
+  private validateTransition(command:Extract<JiraCommand,{action:'jira.transition'}>) {
+    if(!/^[A-Z][A-Z0-9_]*$/.test(command.projectKey) || !/^[A-Z][A-Z0-9_]*-\d{1,7}$/.test(command.issueKey) || !command.issueKey.startsWith(`${command.projectKey}-`)) throw new Error('Issue must belong to the approved project');
+    if(typeof command.toStatus!=='string' || !command.toStatus.trim() || command.toStatus.length>80) throw new Error('A status to move to is required');
+  }
   validate(command:JiraCommand) {
+    if(command.action==='jira.transition') return this.validateTransition(command);
     if(!/^[A-Z][A-Z0-9_]*$/.test(command.projectKey) || !command.fields || typeof command.fields!=='object' || Array.isArray(command.fields)) throw new Error('Valid Jira project and fields required');
     if(command.action==='jira.create' && (!command.issueTypeId || typeof command.fields.summary!=='string' || !command.fields.summary.trim())) throw new Error('Issue type and summary required');
     if(command.action==='jira.update' && (!command.issueKey || !command.issueKey.startsWith(`${command.projectKey}-`))) throw new Error('Issue must belong to the approved project');
     if('project' in command.fields || 'issuetype' in command.fields) throw new Error('Project and issue type must use the selected mapping');
   }
+  /** The moves Jira allows for this issue right now (read-only). */
+  async transitions(connection:JiraConnection,issueKey:string):Promise<{id:string;name:string;to:string}[]> {
+    const body=await (await this.api(connection,`issue/${encodeURIComponent(issueKey)}/transitions`)).json() as {transitions?:{id:string;name:string;to?:{name?:string}}[]};
+    return (body.transitions ?? []).map(t=>({id:String(t.id),name:String(t.name),to:String(t.to?.name ?? t.name)}));
+  }
+  private async executeTransition(connection:JiraConnection,command:Extract<JiraCommand,{action:'jira.transition'}>):Promise<ExecutionResult> {
+    const issue=await (await this.api(connection,`issue/${encodeURIComponent(command.issueKey)}?fields=project,status`)).json() as {fields:{project:{key:string};status:{name:string}}};
+    if(issue.fields.project.key!==command.projectKey) throw new Error('Issue must belong to the approved project');
+    const link=`${connection.siteUrl.replace(/\/$/,'')}/browse/${encodeURIComponent(command.issueKey)}`;
+    const wanted=command.toStatus.trim().toLowerCase();
+    // Already there: nothing to write.
+    if(issue.fields.status.name.toLowerCase()===wanted) return {status:'succeeded',externalId:command.issueKey,link};
+    const options=await this.transitions(connection,command.issueKey);
+    const match=options.find(t=>t.to.toLowerCase()===wanted) ?? options.find(t=>t.name.toLowerCase()===wanted);
+    if(!match) throw new Error(`Jira does not allow moving ${command.issueKey} to ${command.toStatus} right now. Available: ${options.map(t=>t.to).join(', ') || 'none'}.`);
+    try { await this.api(connection,`issue/${encodeURIComponent(command.issueKey)}/transitions`,{method:'POST',body:JSON.stringify({transition:{id:match.id}})}); }
+    catch(error) { throw new Error(`Jira refused to move ${command.issueKey} to ${command.toStatus}. It may need extra fields on its transition screen, or you may lack permission. (${String(error instanceof Error ? error.message : error)})`); }
+    return {status:'succeeded',externalId:command.issueKey,link};
+  }
   async execute(connection:JiraConnection,command:JiraCommand,_idempotencyKey:string):Promise<ExecutionResult> {
     this.validate(command);
+    if(command.action==='jira.transition') return this.executeTransition(connection,command);
     let metadata:Record<string,Field>;
     if(command.action==='jira.create') metadata=Object.fromEntries((await this.fields(connection,command.projectKey,command.issueTypeId!)).map(field=>[field.fieldId!,field]));
     else {
