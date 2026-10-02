@@ -543,3 +543,61 @@ describe('only issues the user named or Kian showed', () => {
     expect(PLANNER_INSTRUCTIONS).toMatch(/first return a search lookup/);
   });
 });
+
+describe('group requests and counts in the planner', () => {
+  const base: Thread = { history: [], pending: [], connections: [{ provider: 'jira', name: 'Jira Cloud' }], jira: { connected: true, defaultProject: 'SFT' } };
+  const keys = Array.from({ length: 24 }, (_, i) => `SFT-${i + 1}`);
+  const shown: Thread = { ...base, history: [{ role: 'user', content: 'deployed ones' }, { role: 'assistant', content: `Here.\n[Shown earlier: Issues (searched: project SFT, status Deployed): ${keys.join(', ')}]` }] };
+  const move = (issueKey: string) => item('jira.transition', null, { issueKey, toStatus: 'Done' });
+  const scripted = (...answers: unknown[]) => { const contexts: PlanContext[] = []; let n = 0; return { planner: createPlanner(async (_t, _l, _z, c) => { contexts.push(c); return answers[Math.min(n++, answers.length - 1)]; }), contexts }; };
+  const run = (planner: ReturnType<typeof createPlanner>, text: string, thread: Thread = base) => planner('alice', text, 'en-GB', 'Europe/London', thread);
+
+  it('says so when it prepares the most it can at once, so nobody thinks "all" was done', async () => {
+    const result = await run(scripted({ reply: 'I prepared all of them.', tasks: keys.slice(0, 20).map(move) }).planner, 'move all the deployed ones into done', shown);
+    expect(result.tasks).toHaveLength(20);
+    expect(result.reply).toMatch(/most I prepare at once \(20\)/);
+    expect(result.reply).toMatch(/say "continue"/);
+    const fewer = await run(scripted({ reply: 'Ready.', tasks: keys.slice(0, 3).map(move) }).planner, 'move SFT-1 SFT-2 SFT-3 to done', shown);
+    expect(fewer.reply).not.toMatch(/most I prepare/);
+  });
+
+  it('accepts a key from any row of a long shown table, not only the first twenty', async () => {
+    const result = await run(scripted({ reply: 'Ready.', tasks: [move('SFT-24')] }).planner, 'and the last one', shown);
+    expect(result.tasks.map(t => t.parameters.issueKey)).toEqual(['SFT-24']);
+  });
+
+  it('will not answer "how many" about issues from memory: one repair retry forces a lookup', async () => {
+    const search = { type: 'search', project: 'SFT', statuses: ['Deployed'], assignee: 'me' };
+    const { planner, contexts } = scripted({ reply: 'You have 10 stories in Deployed status.', tasks: [] }, { reply: 'Counting.', lookups: [search] });
+    const result = await run(planner, 'how many of them are in deployed status', shown);
+    expect(contexts).toHaveLength(2);
+    expect(contexts[1].repair).toMatch(/"how many"/);
+    expect(result.lookups).toEqual([search]);
+    expect(result.reply).not.toContain('10');
+  });
+
+  it('says plainly that it will not give a number when the retry still has no lookup', async () => {
+    const result = await run(scripted({ reply: 'You have 10 stories in Deployed status.', tasks: [] }).planner, 'how many stories are in deployed status?', shown);
+    expect(result.reply).toMatch(/will not give you a number/);
+    expect(result.reply).not.toContain('10');
+    expect(result.lookups).toEqual([]);
+  });
+
+  it('leaves counts alone when nothing can be looked up, on the second pass, and for questions that are not about issues', async () => {
+    const off: Thread = { ...base, jira: { connected: false, defaultProject: null } };
+    const noJira = scripted({ reply: 'Jira is not connected.', tasks: [] });
+    expect((await run(noJira.planner, 'how many stories are in Deployed?', off)).reply).toBe('Jira is not connected.');
+    expect(noJira.contexts).toHaveLength(1);
+    const second = scripted({ reply: 'There are 3 in Deployed.' });
+    expect((await run(second.planner, 'how many stories are in Deployed?', { ...base, lookupResults: [{ type: 'search', found: 3 }] })).reply).toBe('There are 3 in Deployed.');
+    const other = scripted({ reply: 'I can prepare up to 20 at once.', tasks: [] });
+    expect((await run(other.planner, 'how many cards can you prepare at once?')).reply).toBe('I can prepare up to 20 at once.');
+  });
+
+  it('tells the model to keep the filters when a list is refined, and to search again on "continue"', () => {
+    expect(PLANNER_INSTRUCTIONS).toMatch(/keep every filter in that list's "\(searched: \.\.\.\)" note/);
+    expect(PLANNER_INSTRUCTIONS).toMatch(/"continue"/);
+    expect(PLANNER_INSTRUCTIONS).toMatch(/Counts \("how many"\) come only from a lookup/);
+  });
+});
+
