@@ -198,3 +198,11 @@ Use the real planning model on staging with Google Calendar and Jira connected. 
 | The delete card has no "always do this" box and no Edit | pending | |
 | Phone width: card readable, no sideways scrolling | pending | |
 
+## SFT-295: command evaluation
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| `pnpm test` runs the evaluation cases against the validator on every CI run | pass (automated) | CI |
+| First run against the real model (`eval:live` or the "Evaluate Kian commands" workflow) records the baseline in `apps/api/eval/baseline.json` | pending (needs OPENAI_API_KEY; owner action) | |
+| After the baseline, a prompt change shows the difference in the run summary | pending | |
+
