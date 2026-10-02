@@ -1,5 +1,5 @@
 import { JiraReadError, type JiraConnection, type JiraIssueDetail, type JiraIssueRow, type JiraSearchResult } from '@kian/connectors';
-import { addDays, clampDate, LIMITS, quote, searchJql, type Lookup } from './lookups.js';
+import { addDays, clampDate, describeSearch, LIMITS, quote, searchJql, type Lookup } from './lookups.js';
 
 /** A table the chat can show. It is always built from Jira's own answer, never from model text. */
 export type ResultTable = { title: string; columns: string[]; rows: string[][]; links: (string | null)[]; note?: string };
@@ -44,8 +44,17 @@ export function createInsights(reader: Reader) {
       const result = await reader.search(connection, jql, LIMITS.searchIssues);
       outcome.issuesRead += result.issues.length;
       const limit = lookup.limit ?? LIMITS.tableRows;
-      outcome.tables.push(issueTable(connection, 'Issues', result.issues, result.truncated ? `More than ${LIMITS.searchIssues} matched.` : undefined, limit));
-      outcome.digest.push({ type: 'search', found: result.issues.length, moreExist: result.truncated, issues: result.issues.slice(0, LIMITS.digestRows).map(compact) });
+      const searched = describeSearch(lookup, connection.defaultProject);
+      outcome.tables.push(issueTable(connection, 'Issues', result.issues, [`Searched: ${searched}.`, result.truncated ? `More than ${LIMITS.searchIssues} matched.` : ''].filter(Boolean).join(' '), limit));
+      // A search narrowed to the user's own issues that finds nothing is checked again without that narrowing, so the answer can say so instead of just "none".
+      let withoutAssignee: number | undefined;
+      if (!result.issues.length && lookup.assignee === 'me') {
+        const wider = searchJql({ ...lookup, assignee: undefined }, today, connection.defaultProject);
+        const again = await reader.search(connection, wider.jql, LIMITS.searchIssues);
+        withoutAssignee = again.issues.length;
+        if (withoutAssignee) notes.push(`Nothing is assigned to you, but ${withoutAssignee}${again.truncated ? '+' : ''} match without that filter. Ask me to show them.`);
+      }
+      outcome.digest.push({ type: 'search', searched, ...(withoutAssignee !== undefined ? { matchWithoutAssigneeFilter: withoutAssignee } : {}), found: result.issues.length, moreExist: result.truncated, issues: result.issues.slice(0, LIMITS.digestRows).map(compact) });
     } else if (lookup.type === 'issue') {
       const detail = await reader.issue(connection, lookup.key);
       outcome.issuesRead += 1;

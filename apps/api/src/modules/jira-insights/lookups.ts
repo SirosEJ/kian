@@ -78,3 +78,22 @@ export function searchJql(lookup: SearchLookup, today: string, defaultProject: s
   if (!project && !lookup.epic && !lookup.keys?.length && !dated) { parts.push(`updated >= ${quote(addDays(today, -LIMITS.lookbackDays))}`); notes.push(`No project or period given, so I searched the last ${LIMITS.lookbackDays} days.`); }
   return { jql: `${parts.join(' AND ')} ORDER BY ${lookup.orderBy ?? 'updated'} DESC`, notes };
 }
+
+/** The filters of a search in plain words, so the user (and the model, on a follow-up) can see exactly what was asked of Jira. */
+export function describeSearch(lookup: SearchLookup, defaultProject: string | null | undefined): string {
+  const parts: string[] = [];
+  const project = lookup.project ?? (defaultProject && !lookup.epic && !lookup.keys?.length ? defaultProject : undefined);
+  if (project) parts.push(`project ${project}`);
+  if (lookup.epic) parts.push(`in epic ${lookup.epic}`);
+  if (lookup.keys?.length) parts.push(`issues ${lookup.keys.join(', ')}`);
+  if (lookup.issueTypes?.length) parts.push(`type ${lookup.issueTypes.join(' or ')}`);
+  if (lookup.statuses?.length) parts.push(`status ${lookup.statuses.join(' or ')}`);
+  if (lookup.statusCategory) parts.push(`status category ${lookup.statusCategory}`);
+  if (lookup.assignee === 'me') parts.push('assigned to you');
+  if (lookup.assignee === 'unassigned') parts.push('unassigned');
+  for (const [label, from, to] of [['created', lookup.createdFrom, lookup.createdTo], ['updated', lookup.updatedFrom, lookup.updatedTo], ['resolved', lookup.resolvedFrom, lookup.resolvedTo]] as const) {
+    if (from || to) parts.push(`${label} ${from && to ? (from === to ? `on ${from}` : `${from} to ${to}`) : from ? `from ${from}` : `until ${to}`}`);
+  }
+  if (lookup.text) parts.push(`text "${lookup.text}"`);
+  return parts.length ? parts.join(', ') : 'recent issues';
+}
