@@ -10,6 +10,7 @@ describe('immutable Jira consent',()=>{
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/001_core.sql',import.meta.url),'utf8'));
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/002_conversations.sql',import.meta.url),'utf8'));
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/003_message_tasks.sql',import.meta.url),'utf8'));
+    await db.exec(await readFile(new URL('../../../../../packages/db/migrations/004_message_tables.sql',import.meta.url),'utf8'));
     await db.query<Record<string,unknown>>("INSERT INTO users(id) VALUES ('alice')");
     await db.query<Record<string,unknown>>("INSERT INTO connections(id,owner_id,provider,display_name,settings) VALUES ('j','alice','jira','Jira',$1)",[JSON.stringify({siteId:'old',siteUrl:'https://old.atlassian.net',destination:'DEMO',issueTypeId:'1'})]);
     const fields=snapshotJiraFields({summary:'Story'}, {siteId:'old',siteUrl:'https://old.atlassian.net',issueTypeId:'1'});

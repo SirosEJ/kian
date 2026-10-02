@@ -11,6 +11,7 @@ describe('Jira account connection',()=>{
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/001_core.sql',import.meta.url),'utf8'));
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/002_conversations.sql',import.meta.url),'utf8'));
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/003_message_tasks.sql',import.meta.url),'utf8'));
+    await db.exec(await readFile(new URL('../../../../../packages/db/migrations/004_message_tables.sql',import.meta.url),'utf8'));
     const key=Buffer.alloc(32,1),mock=vi.fn(async()=>Response.json({access_token:'new-access',refresh_token:'rotated-refresh',expires_in:3600}));
     await db.query("INSERT INTO users(id) VALUES ('alice')");
     await db.query("INSERT INTO connections(id,owner_id,provider,display_name,settings,secret_ciphertext) VALUES ('j','alice','jira','Jira',$1,$2)",[JSON.stringify({siteId:'site-1',siteUrl:'https://demo.atlassian.net'}),encryptSecret({access_token:'old',refresh_token:'old-refresh',expires_at:1},key)]);
@@ -27,6 +28,7 @@ describe('Jira account connection',()=>{
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/001_core.sql',import.meta.url),'utf8'));
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/002_conversations.sql',import.meta.url),'utf8'));
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/003_message_tasks.sql',import.meta.url),'utf8'));
+    await db.exec(await readFile(new URL('../../../../../packages/db/migrations/004_message_tables.sql',import.meta.url),'utf8'));
     const mock=vi.fn(async(url:string)=>{
       if(url==='https://auth.atlassian.com/oauth/token') return Response.json({access_token:'private-access',refresh_token:'private-refresh',expires_in:3600});
       if(url.includes('accessible-resources')) return Response.json([{id:'site-1',name:'Demo site',url:'https://demo.atlassian.net',scopes:['read:jira-work','write:jira-work']}]);
