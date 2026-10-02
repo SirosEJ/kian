@@ -106,3 +106,32 @@ describe('Jira lookups and reports', () => {
     expect(Object.keys(reader).sort()).toEqual(['issue', 'search']);
   });
 });
+
+describe('saying what was searched', () => {
+  it('names the filters in the table note and the digest', async () => {
+    const { reader } = fake(() => [row('SFT-1')]);
+    const outcome = await createInsights(reader).run({ ...connection, defaultProject: 'SFT' }, [{ type: 'search', statusCategory: 'To Do' }], today);
+    expect(outcome.tables[0].note).toBe('Searched: project SFT, status category To Do.');
+    expect(outcome.digest[0]).toMatchObject({ searched: 'project SFT, status category To Do' });
+  });
+
+  it('when nothing is assigned to the user, checks without that filter and says how many match', async () => {
+    const { reader, calls } = fake(jql => (jql.includes('currentUser()') ? [] : [row('SFT-1'), row('SFT-2')]));
+    const outcome = await createInsights(reader).run(connection, [{ type: 'search', project: 'SFT', statusCategory: 'To Do', assignee: 'me' }], today);
+    expect(calls).toHaveLength(2);
+    expect(calls[1]).not.toContain('currentUser()');
+    expect(outcome.tables[0].rows).toEqual([]);
+    expect(outcome.digest[0]).toMatchObject({ found: 0, matchWithoutAssigneeFilter: 2 });
+    expect(outcome.notes.join(' ')).toContain('2 match without that filter');
+  });
+
+  it('does not search again when the first search found something or had no assignee filter', async () => {
+    const found = fake(() => [row('SFT-1')]);
+    await createInsights(found.reader).run(connection, [{ type: 'search', project: 'SFT', assignee: 'me' }], today);
+    expect(found.calls).toHaveLength(1);
+    const none = fake(() => []);
+    await createInsights(none.reader).run(connection, [{ type: 'search', project: 'SFT' }], today);
+    expect(none.calls).toHaveLength(1);
+  });
+});
+

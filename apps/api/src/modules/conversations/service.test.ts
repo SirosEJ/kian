@@ -287,6 +287,9 @@ describe('conversation with Kian', () => {
       expect(shownNote([table])).toBe('\n[Shown earlier: Issues: SFT-245, SFT-244]');
       expect(shownNote([])).toBe('');
       expect(shownNote(undefined)).toBe('');
+      const searched = { ...table, note: 'Searched: project SFT, status category To Do. More than 200 matched.' };
+      expect(shownNote([searched])).toBe('\n[Shown earlier: Issues (searched: project SFT, status category To Do): SFT-245, SFT-244]');
+      expect(shownNote([{ title: 'Issues', columns: [], rows: [], links: [], note: 'Searched: assigned to you.' }])).toBe('\n[Shown earlier: Issues (searched: assigned to you): nothing found]');
       expect(shownNote([{ title: 'By status', columns: ['Status', 'Issues'], rows: [['Done', '3']], links: [null] }])).toBe('');
       const many = { ...table, rows: Array.from({ length: 50 }, (_, i) => [`AB-${i + 1}`, "s"]) };
       expect(shownNote([many]).split(',').length).toBe(20);
