@@ -21,7 +21,7 @@ function issueTable(connection: JiraConnection, title: string, issues: JiraIssue
   };
 }
 
-const compact = (i: JiraIssueRow) => ({ key: i.key, summary: i.summary.slice(0, 120), issueType: i.type, status: i.status, assignee: i.assignee, updated: day(i.updated), due: i.due });
+const compact = (i: JiraIssueRow) => ({ key: i.key, summary: i.summary.slice(0, 120), issueType: i.type, status: i.status, assignee: i.assignee, reporter: i.reporter, created: day(i.created), updated: day(i.updated), due: i.due });
 
 function tally<T>(items: T[], by: (item: T) => string): [string, number][] {
   const map = new Map<string, number>();
@@ -50,7 +50,7 @@ export function createInsights(reader: Reader) {
       const detail = await reader.issue(connection, lookup.key);
       outcome.issuesRead += 1;
       outcome.tables.push(issueTable(connection, lookup.key, [detail]));
-      outcome.digest.push({ type: 'issue', ...compact(detail), reporter: detail.reporter, priority: detail.priority, created: day(detail.created), resolved: day(detail.resolved), labels: detail.labels, parent: detail.parentKey, blockedBy: detail.blockedBy, description: detail.description, comments: detail.comments, links: detail.links, subtasks: detail.subtasks });
+      outcome.digest.push({ type: 'issue', ...compact(detail), priority: detail.priority, resolved: day(detail.resolved), labels: detail.labels, parent: detail.parentKey, blockedBy: detail.blockedBy, description: detail.description, comments: detail.comments, links: detail.links, subtasks: detail.subtasks });
     } else if (lookup.type === 'epic') {
       const epic = await reader.issue(connection, lookup.key);
       const children = await reader.search(connection, `parent = ${quote(lookup.key)} ORDER BY status ASC, updated DESC`, LIMITS.searchIssues);

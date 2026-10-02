@@ -27,6 +27,8 @@ describe('Jira lookups and reports', () => {
     expect(table.links[0]).toBe('https://demo.atlassian.net/browse/SFT-1');
     expect(outcome.issuesRead).toBe(2);
     expect(outcome.digest[0]).toMatchObject({ type: 'search', found: 2 });
+    // The model also gets who created each issue and when, so a follow-up like "who created them?" can be answered.
+    expect((outcome.digest[0] as { issues: unknown[] }).issues[0]).toMatchObject({ key: 'SFT-1', reporter: 'Siros EJ', created: '2026-10-01' });
     expect(JSON.stringify(outcome)).not.toContain('secret-token');
   });
 
