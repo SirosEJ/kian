@@ -104,7 +104,8 @@ Use the real planning model on the preview.
 
 | Check | Result | Evidence |
 | --- | --- | --- |
-| "Book a meeting with Sam", then "Saturday at 10 for 30 minutes": no question about inviting Sam, and the card can be approved (with a calendar connected) | pending | |
+| "Book a meeting with Sam", then "Saturday at 10 for 30 minutes": no question about inviting Sam, and the card can be approved (with a calendar connected) | pending (the exact example that failed on 2 Oct 2026 before the fix has not been re-run; see the next row) | |
+| With a calendar connected, "Book a meeting called Kian test tomorrow at 10:00 for 30 minutes": one reply, one complete card, no guest question, approvable | passed (2 Oct 2026, staging, real model) | Kian replied "I've prepared a calendar event called 'Kian test' for tomorrow at 10:00 for 30 minutes."; card showed 2026-10-03 10:00 to 10:30 (+03:00, Europe/Istanbul), "Using Google Calendar"; approving it created the event (owner screenshot of Google Calendar) |
 | Same without a calendar connected: the reply says it does not see a connected Google Calendar and points to Settings | pending | |
 | "Book a meeting with Sam and invite sam@example.com": the invitation is kept | pending | |
 | With two calendars connected: the reply asks you to choose with Edit | pending | |
