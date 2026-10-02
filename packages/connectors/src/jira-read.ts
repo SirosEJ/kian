@@ -8,6 +8,8 @@ export type JiraIssueRow = {
   labels: string[]; parentKey: string | null; blockedBy: string[];
 };
 export type JiraIssueDetail = JiraIssueRow & { description: string; comments: { author: string; created: string; text: string }[]; links: { type: string; key: string; summary: string }[]; subtasks: { key: string; summary: string; status: string }[] };
+export type JiraIssueBrief = { key: string; summary: string; status: string; projectKey: string };
+export type JiraTransitionOption = { id: string; name: string; to: string };
 export type JiraSearchResult = { issues: JiraIssueRow[]; truncated: boolean };
 
 const ROW_FIELDS = ['summary', 'issuetype', 'status', 'assignee', 'reporter', 'priority', 'created', 'updated', 'resolutiondate', 'duedate', 'labels', 'parent', 'issuelinks'];
@@ -79,6 +81,18 @@ export class JiraReader {
       if (!token || body.isLast) return { issues: issues.slice(0, max), truncated: false };
     }
     return { issues: issues.slice(0, max), truncated: Boolean(token) };
+  }
+
+  /** Just enough to build a status-change card: title, current status and project. */
+  async brief(connection: JiraConnection, key: string): Promise<JiraIssueBrief> {
+    const body = await this.get(connection, `issue/${encodeURIComponent(key)}`, { fields: 'summary,status,project' });
+    return { key: String(body.key ?? key), summary: String(body.fields?.summary ?? ''), status: String(body.fields?.status?.name ?? ''), projectKey: String(body.fields?.project?.key ?? '') };
+  }
+
+  /** The moves Jira allows for this issue right now. */
+  async transitions(connection: JiraConnection, key: string): Promise<JiraTransitionOption[]> {
+    const body = await this.get(connection, `issue/${encodeURIComponent(key)}/transitions`);
+    return ((body.transitions ?? []) as any[]).map(t => ({ id: String(t.id), name: String(t.name), to: String(t.to?.name ?? t.name) }));
   }
 
   async issue(connection: JiraConnection, key: string): Promise<JiraIssueDetail> {

@@ -38,3 +38,67 @@ describe('Jira Cloud adapter',()=>{
     await expect(adapter.execute(connection,{action:'jira.update',projectKey:'OTHER',issueKey:'DEMO-1',fields:{summary:'Changed'}},'u2')).rejects.toThrow('approved project');
   });
 });
+
+describe('Jira status changes',()=>{
+  const fake=(opts:{status?:string;project?:string;transitions?:{id:string;name:string;to:{name:string}}[];postStatus?:number}={})=>{
+    const posts:string[]=[];
+    const mock=vi.fn(async (url:string,init?:RequestInit)=>{
+      const path=new URL(url).pathname;
+      if(init?.method==='POST'){ posts.push(`${path} ${init.body}`); return opts.postStatus ? new Response('',{status:opts.postStatus}) : new Response(null,{status:204}); }
+      if(path.endsWith('/transitions')) return Response.json({transitions:opts.transitions ?? [{id:'21',name:'Start',to:{name:'In Progress'}},{id:'31',name:'Finish',to:{name:'Done'}}]});
+      return Response.json({fields:{project:{key:opts.project ?? 'DEMO'},status:{name:opts.status ?? 'To Do'}}});
+    });
+    return {adapter:new JiraConnector(mock as typeof fetch),posts};
+  };
+  const move=(toStatus:string,issueKey='DEMO-7')=>({action:'jira.transition' as const,projectKey:'DEMO',issueKey,toStatus});
+
+  it('moves an issue through the transition Jira offers for the wanted status, and links to it',async()=>{
+    const {adapter,posts}=fake();
+    const result=await adapter.execute(connection,move('In Progress'),'k');
+    expect(result).toMatchObject({status:'succeeded',externalId:'DEMO-7',link:'https://demo.atlassian.net/browse/DEMO-7'});
+    expect(posts).toEqual(['/ex/jira/site-1/rest/api/3/issue/DEMO-7/transitions {"transition":{"id":"21"}}']);
+  });
+
+  it('matches the status name without caring about case, and also accepts the transition\'s own name',async()=>{
+    expect((await fake().adapter.execute(connection,move('in progress'),'k')).status).toBe('succeeded');
+    const {adapter,posts}=fake({transitions:[{id:'9',name:'Begin work',to:{name:'In Development'}}]});
+    await adapter.execute(connection,move('begin work'),'k');
+    expect(posts[0]).toContain('"id":"9"');
+  });
+
+  it('writes nothing when the issue is already in that status',async()=>{
+    const {adapter,posts}=fake({status:'In Progress'});
+    expect((await adapter.execute(connection,move('In Progress'),'k')).status).toBe('succeeded');
+    expect(posts).toEqual([]);
+  });
+
+  it('refuses a move Jira does not offer, names what is available and writes nothing',async()=>{
+    const {adapter,posts}=fake();
+    await expect(adapter.execute(connection,move('Blocked'),'k')).rejects.toThrow('Available: In Progress, Done');
+    expect(posts).toEqual([]);
+  });
+
+  it('refuses an issue outside the approved project, before reading or writing anything else',async()=>{
+    expect(()=>fake().adapter.validate({...move('Done','OTHER-1')})).toThrow('approved project');
+    const {adapter,posts}=fake({project:'ELSEWHERE'});
+    await expect(adapter.execute(connection,move('Done'),'k')).rejects.toThrow('approved project');
+    expect(posts).toEqual([]);
+  });
+
+  it('turns a refused transition into a clear failure',async()=>{
+    const {adapter}=fake({postStatus:400});
+    await expect(adapter.execute(connection,move('In Progress'),'k')).rejects.toThrow(/Jira refused to move DEMO-7.*transition screen/);
+  });
+
+  it('rejects bad keys and empty statuses',()=>{
+    const {adapter}=fake();
+    for(const bad of [move('Done','demo-7'),move('Done','DEMO-'),move('Done','DEMO-1; DROP'),move(''),move('x'.repeat(81))]) expect(()=>adapter.validate(bad)).toThrow();
+  });
+
+  it('lists the moves Jira allows, read-only',async()=>{
+    const {adapter,posts}=fake();
+    expect((await adapter.transitions(connection,'DEMO-7')).map(t=>t.to)).toEqual(['In Progress','Done']);
+    expect(posts).toEqual([]);
+  });
+});
+

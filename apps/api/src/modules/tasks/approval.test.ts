@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { PGlite } from '@electric-sql/pglite';
 import { readFile } from 'node:fs/promises';
-import { createApprovalService } from './approval.js';
+import { createApprovalService, missingDetails } from './approval.js';
 
 async function setup() {
   const db = new PGlite();
@@ -104,6 +104,15 @@ describe('transactions on a connection pool', () => {
     // Rejecting never needs complete details.
     expect((await service.decideTask('alice', 'e1', 1, 'reject')).state).toBe('rejected');
     await db.close();
+  });
+});
+
+describe('what a Jira status change needs before it can be approved', () => {
+  it('needs an issue and a status', () => {
+    expect(missingDetails('jira.transition', { issueKey: 'SFT-1', toStatus: 'Done' })).toEqual([]);
+    expect(missingDetails('jira.transition', { issueKey: '', toStatus: 'Done' })).toEqual(['issue']);
+    expect(missingDetails('jira.transition', { toStatus: '  ' })).toEqual(['issue', 'new status']);
+    expect(missingDetails('jira.transition', undefined)).toEqual(['issue', 'new status']);
   });
 });
 
