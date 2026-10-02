@@ -4,6 +4,7 @@ import { getJiraConnection, type JiraConfig } from '../connections/jira-routes.j
 import type { JiraLookupPort } from '../conversations/service.js';
 import { createInsights, type Reader } from './insights.js';
 import { checkTransition, type TransitionCheck, type TransitionReader } from './transitions.js';
+import { checkIssue, type IssueCheck } from './updates.js';
 
 /**
  * Connects the conversation to the signed-in user's own Jira connection. The user id picks the connection in every query,
@@ -29,6 +30,16 @@ export function createJiraLookupPort(db: Queryable, config: JiraConfig, reader: 
         return await checkTransition(reader, connection, row.settings.destination ?? null, issueKey, toStatus);
       } catch (error) {
         return { ok: false, reason: (error as { statusCode?: number }).statusCode === 422 ? String((error as Error).message) : 'Jira could not be reached to check this move. Try again in a moment.' };
+      }
+    },
+    async checkIssue(ownerId, issueKey): Promise<IssueCheck | null> {
+      const row = await connectionOf(ownerId);
+      if (!row) return null;
+      try {
+        const connection = await getJiraConnection(db, ownerId, row.id, config);
+        return await checkIssue(reader, connection, row.settings.destination ?? null, issueKey);
+      } catch (error) {
+        return { ok: false, reason: (error as { statusCode?: number }).statusCode === 422 ? String((error as Error).message) : 'Jira could not be reached to check this change. Try again in a moment.' };
       }
     },
     async run(ownerId, lookups, today) {

@@ -445,8 +445,24 @@ describe('conversation with Kian', () => {
       const second = await service.converse('alice', input('yes delete it', first.conversationId));
       expect(second.tasks).toHaveLength(1);
       expect(second.tasks[0]).toMatchObject({ action: 'calendar.delete', state: 'proposed', destination: 'me@example.com', uncertainties: [], parameters: { eventId: 'abc123', summary: 'key on test', when: 'Sat 3 Oct 10:00–10:30' } });
+      expect(second.tasks[0].parameters._review).toMatchObject({ changes: [{ field: 'Event', after: 'Deleted' }] });
       // Nothing is deleted without approval, and a delete is never started by a trust rule.
       expect(await stateOf(db, second.tasks[0].id)).toBe('proposed');
+      await db.close();
+    });
+
+    it('builds update cards for events and issues from what Google and Jira say, with before and after', async () => {
+      const upd = (action: 'calendar.update' | 'jira.update', parameters: Record<string, unknown>): TaskProposal => ({ id: `u${++counter}`, action, connectionId: null, destination: null, parameters, uncertainties: [], state: 'proposed' });
+      const plan: Plan = async () => ({ reply: 'Two cards.', tasks: [upd('calendar.update', { eventId: 'abc123', start: '2026-10-03T16:00:00+01:00', end: '2026-10-03T16:30:00+01:00' }), upd('jira.update', { issueKey: 'SFT-1', summary: 'New title' })], pending: 'keep', lookups: [] });
+      const jiraPort: JiraLookupPort = { info: async () => ({ connected: true, defaultProject: 'SFT' }), run: async () => null, checkTransition: async () => null, checkIssue: async () => ({ ok: true, key: 'SFT-1', title: 'Old title', status: 'To Do', projectKey: 'SFT' }) };
+      const { db, service } = await setup(plan, jiraPort, port(async () => found));
+      const result = await service.converse('alice', input('move the test booking to 4pm and rename SFT-1'));
+      const [event, issue] = result.tasks;
+      expect(event.parameters._review).toMatchObject({ changes: [{ field: 'When', before: 'Sat 3 Oct 10:00–10:30', after: 'Sat 3 Oct 16:00–16:30' }] });
+      expect(issue.parameters._review).toMatchObject({ changes: [{ field: 'Title', before: 'Old title', after: 'New title' }] });
+      expect([event.destination, issue.destination]).toEqual(['me@example.com', 'SFT']);
+      expect(await stateOf(db, event.id)).toBe('proposed');
+      expect(await stateOf(db, issue.id)).toBe('proposed');
       await db.close();
     });
 

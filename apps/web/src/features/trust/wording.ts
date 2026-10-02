@@ -15,6 +15,18 @@ export function trustPrompt(action: string, destination: string, connectionName?
   return `Always do this without asking: ${phrase(action, destination)}${using(connectionName)}. A different recipient, calendar or project always asks you first. You can stop it any time in Settings.`;
 }
 
+/** What Kian guarantees about a card, in the user's words, so the safety checks are visible and not just assumed. */
+export function safetyChecks(action: string): string[] {
+  const checks = ['Nothing happens until you press Approve.'];
+  if (action === 'jira.transition') checks.push('Kian asked Jira first: the issue exists in your selected project and Jira allows this move.');
+  if (action === 'jira.update') checks.push('Only an issue in the Jira project chosen in Settings can be changed.');
+  if (action === 'calendar.update' || action === 'calendar.delete') checks.push('Kian can only change or delete an event it showed you and Google confirmed.');
+  if (action === 'calendar.delete') checks.push('A deleted event cannot be brought back by Kian.');
+  if (action === 'email.send') checks.push('Each recipient must be an address written out in what you said.');
+  if (action.endsWith('.update') || action === 'jira.transition' || action === 'calendar.delete') checks.push('Changes to existing items are never done automatically, and there is no "always do this" for them.');
+  return checks;
+}
+
 /** Why a task cannot be trusted, when the box is off. */
 export function trustUnavailable(action: string): string | null {
   return action.endsWith('.update') || action === 'jira.transition' || action === 'calendar.delete' ? 'Changes to existing items always need your approval.' : null;
