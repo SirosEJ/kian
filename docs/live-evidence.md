@@ -109,3 +109,21 @@ Use the real planning model on the preview.
 | "Book a meeting with Sam and invite sam@example.com": the invitation is kept | pending | |
 | With two calendars connected: the reply asks you to choose with Edit | pending | |
 
+## SFT-234: Google Calendar live on staging
+
+Staging: https://kian-staging-1088794188480.europe-west1.run.app/ · Google account siros.jarchlou@gmail.com · OAuth client "Kian staging" (consent screen: External, In production, unverified, so Google shows its "hasn't verified this app" warning and caps use at 100 users) · 2 Oct 2026.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Settings > Connect Google Calendar: Google consent, returns to Kian as connected | passed (2 Oct 2026) | Settings showed "Account connected." |
+| Choose a calendar; connection shows its status | passed | Settings showed "Selected calendar: siros.jarchlou@gmail.com" with Choose calendar and Disconnect |
+| "Book a meeting called Kian test tomorrow at 10:00 for 30 minutes" produces a reviewable proposal (title, date, time zone) with no unrequested guest question | passed | Card "Kian test", 2026-10-03 10:00 to 10:30 (+03:00, Europe/Istanbul), "Using Google Calendar"; Kian's reply had no invitee question |
+| Approving it creates a real event | passed | Card state Done; the event "Kian test, 10:00" appeared in Google Calendar on Saturday 3 October (owner screenshot); owner deleted it afterwards |
+| The event link appears in Activity | pending | |
+| Reconnect works | pending | |
+| Expired/revoked Google access pauses the task and offers reconnect; nothing marked complete | pending | |
+| A second account sees none of this connection or these calendars | pending (covered by automated isolation tests) | |
+| No tokens in logs | pending | |
+
+The client secret was shown once in a screenshot during setup, so it was rotated: a new secret was created in Google, stored in Secret Manager (`kian-google-client-secret`), and the old one deleted before first use.
+
