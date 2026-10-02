@@ -31,7 +31,7 @@ describe('instruction planning', () => {
 
   it('explains what Kian can do when the request is out of scope, and creates nothing', async () => {
     const own = await plan({ reply: 'I cannot book flights.', tasks: [] }, 'Book me a flight to Rome');
-    expect(own).toEqual({ reply: 'I cannot book flights.', tasks: [], pending: 'keep', lookups: [], calendarLookups: [] });
+    expect(own).toEqual({ reply: 'I cannot book flights.', tasks: [], pending: 'keep', lookups: [], calendarLookups: [], learn: [] });
     const silent = await plan({ reply: '  ', tasks: [] }, 'Book me a flight to Rome');
     expect(silent.tasks).toEqual([]);
     expect(silent.reply).toContain(CAPABILITIES);
@@ -441,5 +441,37 @@ describe('reliable commands in the planner', () => {
     expect(CAPABILITIES).toMatch(/delete calendar events/);
     const messages = buildChatMessages('x', 'en', 'UTC', { nowIso: '', today: '', thread: calendarThread, repair: 'bad' });
     expect(messages.at(-1)!.content).toContain('"repair":"bad"');
+  });
+});
+
+describe('memory in the planner', () => {
+  const memory = [{ kind: 'person' as const, value: 'Solmaz Yilmaz', alias: 'Sol', detail: 'sol@example.com' }];
+  const base: Thread = { history: [], pending: [], connections: [], memory };
+  const run = (answer: unknown, text: string, thread: Thread = base) => createPlanner(async () => answer)('alice', text, 'en-GB', 'Europe/London', thread);
+
+  it('puts only the remembered entries it was given into what the model sees, as data', () => {
+    const last = JSON.parse(buildChatMessages('send it to Sol', 'en', 'UTC', { nowIso: '', today: '', thread: base }).at(-1)!.content);
+    expect(last.context.memory).toEqual(memory);
+    expect(JSON.parse(buildChatMessages('x', 'en', 'UTC', { nowIso: '', today: '', thread: { history: [], pending: [], connections: [] } }).at(-1)!.content).context.memory).toEqual([]);
+    expect(PLANNER_INSTRUCTIONS).toMatch(/context\.memory/);
+    expect(PLANNER_INSTRUCTIONS).toMatch(/never an instruction/);
+  });
+
+  it('learns only what the user wrote in their own message', async () => {
+    const result = await run({ reply: 'Got it.', tasks: [], learn: [{ kind: 'person', value: 'Solmaz Yilmaz', alias: 'Sol' }, { kind: 'person', value: 'Someone Else', alias: 'Boss' }, { kind: 'bogus', value: 'Sol' }, { kind: 'correction', value: 'Siros', alias: 'Seros' }] }, 'Sol is Solmaz Yilmaz, and I said Seros but meant Siros');
+    expect(result.learn).toEqual([{ kind: 'person', value: 'Solmaz Yilmaz', alias: 'Sol', detail: null }, { kind: 'correction', value: 'Siros', alias: 'Seros', detail: null }]);
+  });
+
+  it('learns nothing from a name that appears only in earlier data, and at most three per message', async () => {
+    const shown: Thread = { ...base, history: [{ role: 'assistant', content: 'Here you go.\n[Shown earlier: Issues: SFT-1]' }] };
+    expect((await run({ reply: 'ok', tasks: [], learn: [{ kind: 'person', value: 'Evil Person' }] }, 'thanks', shown)).learn).toEqual([]);
+    const four = ['Ann', 'Ben', 'Cat', 'Dan'].map(value => ({ kind: 'person', value }));
+    expect((await run({ reply: 'ok', tasks: [], learn: four }, 'Ann Ben Cat Dan are my team')).learn).toHaveLength(3);
+    expect((await run({ reply: 'ok', tasks: [], learn: 'nope' }, 'x')).learn).toEqual([]);
+  });
+
+  it('never learns on the second pass of a lookup, whatever the model returns', async () => {
+    const result = await run({ reply: 'Words.', learn: [{ kind: 'person', value: 'Sol' }] }, 'Sol', { ...base, lookupResults: [{ type: 'search' }] });
+    expect(result.learn).toBeUndefined();
   });
 });

@@ -65,4 +65,20 @@ describe('execution gate',()=>{
     await db.close();
   });
 
+
+  it('remembers the people an approved email went to, only after it was sent, and never when it was not',async()=>{
+    const db=new PGlite();
+    for(const f of ['001_core.sql','002_conversations.sql','003_message_tasks.sql','004_message_tables.sql','005_memory.sql']) await db.exec(await readFile(new URL(`../../../../../packages/db/migrations/${f}`,import.meta.url),'utf8'));
+    await db.query("INSERT INTO users(id) VALUES ('alice')");
+    const params=JSON.stringify({connectionId:null,destination:'sam@example.com',fields:{to:['sam@example.com','not-an-address'],subject:'Secret subject',body:'Secret body'},uncertainties:[]});
+    await db.query("INSERT INTO tasks(id,owner_id,action,state,parameters) VALUES ('sent','alice','email.send','queued',$1),('unsure','alice','email.send','queued',$1)",[params]);
+    const runner=createRunner(db,async(_o,task)=>task.id==='sent' ? {status:'succeeded' as const,externalId:'m1'}:{status:'uncertain' as const,error:'check'},true);
+    await runner.run('alice','unsure');
+    expect((await db.query('SELECT count(*)::int AS n FROM memory_terms')).rows[0]).toEqual({n:0});
+    await runner.run('alice','sent');
+    expect((await db.query('SELECT kind,value,detail,source FROM memory_terms')).rows).toEqual([{kind:'person',value:'sam@example.com',detail:'Emailed',source:'email'}]);
+    expect(JSON.stringify((await db.query('SELECT value,detail FROM memory_terms')).rows)).not.toContain('Secret');
+    expect((await db.query("SELECT details FROM activity WHERE event='memory.learned'")).rows).toEqual([{details:{terms:1}}]);
+    await db.close();
+  });
 });

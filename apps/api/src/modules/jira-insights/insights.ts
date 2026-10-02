@@ -1,11 +1,13 @@
 import { JiraReadError, type JiraConnection, type JiraIssueDetail, type JiraIssueRow, type JiraSearchResult } from '@kian/connectors';
+import type { LearnedTerm } from '../memory/store.js';
 import { addDays, clampDate, describeSearch, LIMITS, quote, searchJql, type Lookup } from './lookups.js';
 
 /** A table the chat can show. It is always built from Jira's own answer, never from model text. */
 export type ResultTable = { title: string; columns: string[]; rows: string[][]; links: (string | null)[]; note?: string; /** Not shown: ids of the items in each row (calendar event ids), so a follow-up like "delete it" can name the exact one. */ refs?: string[] };
 export type Reader = { search(connection: JiraConnection, jql: string, max: number): Promise<JiraSearchResult>; issue(connection: JiraConnection, key: string): Promise<JiraIssueDetail> };
 export type LookupConnection = JiraConnection & { defaultProject?: string | null };
-export type LookupOutcome = { tables: ResultTable[]; digest: unknown[]; issuesRead: number; notes: string[] };
+/** `learned`: names the lookup revealed (people, projects, epics), for the user's memory. Plain data, never text to act on. */
+export type LookupOutcome = { tables: ResultTable[]; digest: unknown[]; issuesRead: number; notes: string[]; learned?: LearnedTerm[] };
 
 const day = (value: string | null) => (value ? value.slice(0, 10) : '');
 const link = (connection: JiraConnection, key: string) => `${connection.siteUrl.replace(/\/$/, '')}/browse/${encodeURIComponent(key)}`;
@@ -19,6 +21,19 @@ function issueTable(connection: JiraConnection, title: string, issues: JiraIssue
     links: shown.map(i => link(connection, i.key)),
     note: [note, extra > 0 ? `${extra} more not shown: narrow the question to see them.` : ''].filter(Boolean).join(' ') || undefined,
   };
+}
+
+/** People, projects and epics that appear in the issues just read (at most 30), as terms for the memory. */
+function learnedFrom(issues: JiraIssueRow[]): LearnedTerm[] {
+  const terms: LearnedTerm[] = [];
+  for (const i of issues.slice(0, 100)) {
+    for (const name of [i.assignee, i.reporter]) if (name && name !== 'Unassigned') terms.push({ kind: 'person', value: name, detail: 'Jira' });
+    const project = /^([A-Z][A-Z0-9_]+)-\d+$/.exec(i.key)?.[1];
+    if (project) terms.push({ kind: 'project', value: project, detail: 'Jira project' });
+    if (/^epic$/i.test(i.type)) terms.push({ kind: 'epic', value: i.summary, detail: i.key });
+  }
+  const seen = new Set<string>();
+  return terms.filter(t => { const k = `${t.kind}:${t.value.toLowerCase()}`; if (seen.has(k)) return false; seen.add(k); return true; }).slice(0, 30);
 }
 
 const compact = (i: JiraIssueRow) => ({ key: i.key, summary: i.summary.slice(0, 120), issueType: i.type, status: i.status, assignee: i.assignee, reporter: i.reporter, created: day(i.created), updated: day(i.updated), due: i.due });
@@ -43,6 +58,7 @@ export function createInsights(reader: Reader) {
       notes.push(...n);
       const result = await reader.search(connection, jql, LIMITS.searchIssues);
       outcome.issuesRead += result.issues.length;
+      outcome.learned = [...(outcome.learned ?? []), ...learnedFrom(result.issues)];
       const limit = lookup.limit ?? LIMITS.tableRows;
       const searched = describeSearch(lookup, connection.defaultProject);
       outcome.tables.push(issueTable(connection, 'Issues', result.issues, [`Searched: ${searched}.`, result.truncated ? `More than ${LIMITS.searchIssues} matched.` : ''].filter(Boolean).join(' '), limit));
@@ -58,12 +74,14 @@ export function createInsights(reader: Reader) {
     } else if (lookup.type === 'issue') {
       const detail = await reader.issue(connection, lookup.key);
       outcome.issuesRead += 1;
+      outcome.learned = [...(outcome.learned ?? []), ...learnedFrom([detail])];
       outcome.tables.push(issueTable(connection, lookup.key, [detail]));
       outcome.digest.push({ type: 'issue', ...compact(detail), priority: detail.priority, resolved: day(detail.resolved), labels: detail.labels, parent: detail.parentKey, blockedBy: detail.blockedBy, description: detail.description, comments: detail.comments, links: detail.links, subtasks: detail.subtasks });
     } else if (lookup.type === 'epic') {
       const epic = await reader.issue(connection, lookup.key);
       const children = await reader.search(connection, `parent = ${quote(lookup.key)} ORDER BY status ASC, updated DESC`, LIMITS.searchIssues);
       outcome.issuesRead += 1 + children.issues.length;
+      outcome.learned = [...(outcome.learned ?? []), ...learnedFrom([epic, ...children.issues])];
       const byCategory = tally(children.issues, i => i.statusCategory || 'Unknown');
       outcome.tables.push(issueTable(connection, `${lookup.key}: ${epic.summary}`, children.issues, byCategory.map(([k, v]) => `${k}: ${v}`).join(', ') || 'No child issues.'));
       outcome.digest.push({ type: 'epic', ...compact(epic), description: epic.description, children: children.issues.length, byStatusCategory: Object.fromEntries(byCategory), items: children.issues.slice(0, LIMITS.digestRows).map(compact) });

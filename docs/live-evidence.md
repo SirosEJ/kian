@@ -206,3 +206,21 @@ Use the real planning model on staging with Google Calendar and Jira connected. 
 | First run against the real model (`eval:live` or the "Evaluate Kian commands" workflow) records the baseline in `apps/api/eval/baseline.json` | pending (needs OPENAI_API_KEY; owner action) | |
 | After the baseline, a prompt change shows the difference in the run summary | pending | |
 
+## SFT-280: what Kian remembers
+
+Use the real planning model and the owner's Jira and Google Calendar on staging.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Ask Kian to list stories (Jira): Settings, "What Kian remembers" now lists the people, project and epics that were in the results | pending | |
+| New conversation: "show me the onboarding epic" (or a nickname you gave) finds the right epic without asking for its key | pending | |
+| Tell Kian "Sol is Solmaz Yilmaz": a nickname appears in Settings; a later "send Sol ..." refers to her | pending | |
+| Say "I meant Siros" after a wrong spelling: a spoken-form correction appears | pending | |
+| Edit an entry and delete one in Settings; Kian no longer uses the deleted one | pending | |
+| Turn learning off: new lookups add nothing and Kian does not use the entries; turn it on again | pending | |
+| Approve an email and see the recipient appear (after it was sent, not before) | pending | |
+| Activity shows "Kian learned" with a count and no names | pending | |
+| "Delete everything Kian remembers" empties the list | pending | |
+| Another account never sees or uses these entries | pending (automated tests cover the isolation) | |
+| Phone width: the Settings card is readable | pending | |
+
