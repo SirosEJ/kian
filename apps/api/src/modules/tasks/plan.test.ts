@@ -188,3 +188,59 @@ describe('planner instructions', () => {
     });
   });
 });
+
+describe('guests and missing connections', () => {
+  const thread = (over: Partial<Thread> = {}): Thread => ({ history: [], pending: [], connections: [{ provider: 'google_calendar', name: 'Work calendar' }], ...over });
+  const planWith = (answer: unknown, text: string, t: Thread) => createPlanner(async () => answer)('alice', text, 'en-GB', 'Europe/London', t);
+  const meeting = (uncertainties: string[] = []) => item('calendar.create', 'primary', { summary: 'Meeting with Sam', ...ok }, uncertainties);
+
+  it('drops a guest question the user never asked for, so the card can be approved', async () => {
+    const result = await planWith({ reply: 'Prepared.', tasks: [meeting(["What is Sam's email address or calendar to invite?"])] }, 'Saturday at 10 for 30 minutes', thread({ history: [{ role: 'user', content: 'Book a meeting with Sam' }, { role: 'assistant', content: 'When?' }] }));
+    expect(result.tasks[0].uncertainties).toEqual([]);
+  });
+
+  it('keeps other questions when it drops the guest one', async () => {
+    const result = await planWith({ reply: 'Prepared.', tasks: [meeting(['Who is the guest?', 'Which time zone?'])] }, 'Meeting with Sam on Saturday', thread());
+    expect(result.tasks[0].uncertainties).toEqual(['Which time zone?']);
+  });
+
+  it('keeps a guest question when the user asked to invite someone', async () => {
+    for (const said of ['Book a meeting and invite Sam', 'Meeting with sam@example.com at 10', 'Add guests to the planning call']) {
+      const result = await planWith({ reply: 'Prepared.', tasks: [meeting(["What is Sam's email address to invite?"])] }, said, thread());
+      expect(result.tasks[0].uncertainties, said).toEqual(["What is Sam's email address to invite?"]);
+    }
+  });
+
+  it('does not touch guest-like questions on other actions', async () => {
+    const result = await planWith({ reply: 'Prepared.', tasks: [item('jira.create', 'SFT', { summary: 'Invite flow' }, ['Who should be the guest reviewer?'])] }, 'Create a story about the invite flow', thread({ connections: [{ provider: 'jira', name: 'Jira' }] }));
+    expect(result.tasks[0].uncertainties).toEqual(['Who should be the guest reviewer?']);
+  });
+
+  it('tells the user in the reply when the needed account is not connected, and where to connect it', async () => {
+    const calendar = await planWith({ reply: 'I prepared a meeting for you to review.', tasks: [meeting()] }, 'Meeting Saturday', thread({ connections: [] }));
+    expect(calendar.reply).toContain("I don't see a connected Google Calendar yet");
+    expect(calendar.reply).toContain('Settings');
+    const mail = await planWith({ reply: 'Prepared.', tasks: [email(['sam@example.com'])] }, 'Email sam@example.com', thread({ connections: [{ provider: 'google_calendar', name: 'Work calendar' }] }));
+    expect(mail.reply).toContain("I don't see a connected mailbox yet");
+  });
+
+  it('says nothing about connections when exactly one is connected or nothing was prepared', async () => {
+    expect((await planWith({ reply: 'Prepared.', tasks: [meeting()] }, 'x', thread())).reply).toBe('Prepared.');
+    expect((await planWith({ reply: 'Hello!', tasks: [] }, 'hi', thread({ connections: [] }))).reply).toBe('Hello!');
+  });
+
+  it('asks the user to choose when several accounts of the type are connected', async () => {
+    const result = await planWith({ reply: 'Prepared.', tasks: [meeting()] }, 'x', thread({ connections: [{ provider: 'google_calendar', name: 'A' }, { provider: 'google_calendar', name: 'B' }] }));
+    expect(result.reply).toContain('more than one Google Calendar connected');
+  });
+
+  it('does not repeat itself when the model already pointed at Settings', async () => {
+    const result = await planWith({ reply: 'Please connect a calendar in Settings first.', tasks: [meeting()] }, 'x', thread({ connections: [] }));
+    expect(result.reply).toBe('Please connect a calendar in Settings first.');
+  });
+
+  it('states the guest and missing-connection rules in the instructions', () => {
+    for (const phrase of ['Guests are optional', 'never add attendees', 'is not an invitation']) expect(PLANNER_INSTRUCTIONS).toContain(phrase);
+  });
+});
+
