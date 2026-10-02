@@ -3,6 +3,8 @@ import type { Queryable } from '@kian/db';
 import type { TaskProposal } from '@kian/contracts';
 import type { PendingSummary, PlanResult, Thread } from '../tasks/plan.js';
 import type { Lookup } from '../jira-insights/lookups.js';
+import type { CalendarLookup } from '../calendar-insights/lookups.js';
+import type { CalendarContext } from '../calendar-insights/insights.js';
 import type { LookupOutcome, ResultTable } from '../jira-insights/insights.js';
 import { prepareTransitions, type TransitionChecker } from '../jira-insights/transitions.js';
 import { saveProposalsIn } from '../tasks/store.js';
@@ -32,6 +34,12 @@ export type Converse = (ownerId: string, input: { text: string; conversationId?:
  * One conversation per thread, always scoped to its owner. Kian answers every message; proposals the user has not
  * decided on can be superseded by a later message of the same conversation, and nothing else is ever changed here.
  */
+/** What the conversation needs from the calendar lookups: whether they are possible, and to run them. `run` returns null when no Google Calendar is connected. */
+export type CalendarLookupPort = {
+  info(ownerId: string): Promise<{ connected: boolean }>;
+  run(ownerId: string, lookups: CalendarLookup[], ctx: CalendarContext): Promise<LookupOutcome | null>;
+};
+
 /** Today's date (YYYY-MM-DD) where the user is, so "yesterday" means their yesterday. */
 export function todayIn(timeZone: string, now = new Date()): string {
   try { return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now); }
@@ -46,8 +54,9 @@ export function shownNote(tables: ResultTable[] | null | undefined): string {
   return parts.length ? `\n[Shown earlier: ${parts.join('; ')}]` : '';
 }
 const NOT_CONNECTED = 'I could not find a connected Jira site. Connect Jira under Settings (open it from your profile at the top right) and ask me again.';
+const CALENDAR_NOT_CONNECTED = 'I could not find a connected Google Calendar. Connect it under Settings (open it from your profile at the top right) and ask me again.';
 
-export function createConversationService(db: Queryable, plan: Plan, jira?: JiraLookupPort) {
+export function createConversationService(db: Queryable, plan: Plan, jira?: JiraLookupPort, calendar?: CalendarLookupPort) {
   async function ownedConversation(ownerId: string, conversationId: string): Promise<string> {
     const row = (await db.query('SELECT id FROM conversations WHERE id=$1 AND owner_id=$2', [conversationId, ownerId])).rows[0];
     if (!row) throw new ConversationError(404, 'Conversation not found');
@@ -78,20 +87,29 @@ export function createConversationService(db: Queryable, plan: Plan, jira?: Jira
     const connections = (await db.query('SELECT provider,display_name FROM connections WHERE owner_id=$1 AND disconnected_at IS NULL ORDER BY created_at', [ownerId])).rows.map(c => ({ provider: c.provider as string, name: c.display_name as string }));
 
     const jiraInfo = jira ? await jira.info(ownerId) : { connected: false, defaultProject: null };
-    const thread: Thread = { history, pending, connections, jira: jiraInfo };
+    const calendarInfo = calendar ? await calendar.info(ownerId) : { connected: false };
+    const thread: Thread = { history, pending, connections, jira: jiraInfo, calendar: calendarInfo };
     let result = await plan(ownerId, text, locale, timeZone, thread);
     let tables: ResultTable[] = [];
     let lookedUp: { issues: number; types: string[] } | null = null;
-    if (result.lookups?.length && jira) {
+    let calendarLookedUp: { events: number } | null = null;
+    const jiraAsked = result.lookups?.length && jira ? result.lookups : [];
+    const calendarAsked = result.calendarLookups?.length && calendar ? result.calendarLookups : [];
+    if (jiraAsked.length || calendarAsked.length) {
       // A lookup turn only reads and answers: proposals are never created or replaced here.
-      const outcome = await jira.run(ownerId, result.lookups, todayIn(timeZone));
-      if (!outcome) result = { reply: NOT_CONNECTED, tasks: [], pending: 'keep', lookups: [] };
+      const today = todayIn(timeZone);
+      const jiraOutcome = jiraAsked.length ? await jira!.run(ownerId, jiraAsked, today) : null;
+      const calendarOutcome = calendarAsked.length ? await calendar!.run(ownerId, calendarAsked, { today, timeZone: timeZone || 'UTC', now: new Date() }) : null;
+      const outcomes = [jiraOutcome, calendarOutcome].filter((o): o is LookupOutcome => !!o);
+      if (!outcomes.length) result = { reply: jiraAsked.length ? NOT_CONNECTED : CALENDAR_NOT_CONNECTED, tasks: [], pending: 'keep', lookups: [] };
       else {
-        const answer = await plan(ownerId, text, locale, timeZone, { ...thread, lookupResults: outcome.digest });
-        const notes = [...new Set(outcome.notes)].join(' ');
-        lookedUp = { issues: outcome.issuesRead, types: [...new Set(outcome.digest.map(d => String((d as { type?: unknown }).type)))] };
+        const digest = outcomes.flatMap(o => o.digest);
+        const answer = await plan(ownerId, text, locale, timeZone, { ...thread, lookupResults: digest });
+        const notes = [...new Set(outcomes.flatMap(o => o.notes))].join(' ');
+        if (jiraOutcome) lookedUp = { issues: jiraOutcome.issuesRead, types: [...new Set(jiraOutcome.digest.map(d => String((d as { type?: unknown }).type)))] };
+        if (calendarOutcome) calendarLookedUp = { events: calendarOutcome.issuesRead };
         result = { reply: [answer.reply, notes].filter(Boolean).join('\n\n').slice(0, 3000), tasks: [], pending: 'keep', lookups: [] };
-        tables = outcome.tables;
+        tables = outcomes.flatMap(o => o.tables);
       }
     }
 
@@ -102,6 +120,7 @@ export function createConversationService(db: Queryable, plan: Plan, jira?: Jira
       const tasks = await saveProposalsIn(client, ownerId, text, result.tasks, id);
       // What was read is logged by count only: issue contents never go into Activity.
       if (lookedUp) await client.query('INSERT INTO activity(id,owner_id,task_id,event,details) VALUES ($1,$2,NULL,$3,$4)', [randomUUID(), ownerId, 'jira.lookup', JSON.stringify(lookedUp)]);
+      if (calendarLookedUp) await client.query('INSERT INTO activity(id,owner_id,task_id,event,details) VALUES ($1,$2,NULL,$3,$4)', [randomUUID(), ownerId, 'calendar.lookup', JSON.stringify(calendarLookedUp)]);
       if (result.pending === 'replace') {
         for (const row of pendingRows) {
           // Only a still-undecided task can be superseded: a task approved in the meantime is left alone.
