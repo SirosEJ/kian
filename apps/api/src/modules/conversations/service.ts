@@ -2,6 +2,8 @@ import { randomUUID } from 'node:crypto';
 import type { Queryable } from '@kian/db';
 import type { TaskProposal } from '@kian/contracts';
 import type { PendingSummary, PlanResult, Thread } from '../tasks/plan.js';
+import type { Lookup } from '../jira-insights/lookups.js';
+import type { LookupOutcome, ResultTable } from '../jira-insights/insights.js';
 import { saveProposalsIn } from '../tasks/store.js';
 import { transaction } from '../transaction.js';
 
@@ -14,15 +16,27 @@ export class ConversationError extends Error {
 
 export type Plan = (ownerId: string, text: string, locale: string, timeZone: string, thread: Thread) => Promise<PlanResult>;
 export type TaskView = { id: string; action: string; state: string; version: number; connectionId: string | null; destination: string | null; parameters: Record<string, unknown>; uncertainties: string[] };
-export type StoredMessage = { id: string; role: 'user' | 'assistant'; content: string; createdAt: string; tasks: TaskView[] };
+export type StoredMessage = { id: string; role: 'user' | 'assistant'; content: string; createdAt: string; tasks: TaskView[]; tables: ResultTable[] };
+/** What the conversation needs from the Jira lookups: whether they are possible, and to run them. `run` returns null when no Jira site is connected. */
+export type JiraLookupPort = {
+  info(ownerId: string): Promise<{ connected: boolean; defaultProject: string | null }>;
+  run(ownerId: string, lookups: Lookup[], today: string): Promise<LookupOutcome | null>;
+};
 export type ConversationSummary = { id: string; createdAt: string; title: string };
-export type Converse = (ownerId: string, input: { text: string; conversationId?: string; locale: string; timeZone: string }) => Promise<{ conversationId: string; reply: string; tasks: TaskProposal[] }>;
+export type Converse = (ownerId: string, input: { text: string; conversationId?: string; locale: string; timeZone: string }) => Promise<{ conversationId: string; reply: string; tasks: TaskProposal[]; tables: ResultTable[] }>;
 
 /**
  * One conversation per thread, always scoped to its owner. Kian answers every message; proposals the user has not
  * decided on can be superseded by a later message of the same conversation, and nothing else is ever changed here.
  */
-export function createConversationService(db: Queryable, plan: Plan) {
+/** Today's date (YYYY-MM-DD) where the user is, so "yesterday" means their yesterday. */
+export function todayIn(timeZone: string, now = new Date()): string {
+  try { return new Intl.DateTimeFormat('en-CA', { timeZone, year: 'numeric', month: '2-digit', day: '2-digit' }).format(now); }
+  catch { return now.toISOString().slice(0, 10); }
+}
+const NOT_CONNECTED = 'I could not find a connected Jira site. Connect Jira under Settings (open it from your profile at the top right) and ask me again.';
+
+export function createConversationService(db: Queryable, plan: Plan, jira?: JiraLookupPort) {
   async function ownedConversation(ownerId: string, conversationId: string): Promise<string> {
     const row = (await db.query('SELECT id FROM conversations WHERE id=$1 AND owner_id=$2', [conversationId, ownerId])).rows[0];
     if (!row) throw new ConversationError(404, 'Conversation not found');
@@ -50,10 +64,28 @@ export function createConversationService(db: Queryable, plan: Plan) {
     // Names and types only: credentials and settings never reach the model.
     const connections = (await db.query('SELECT provider,display_name FROM connections WHERE owner_id=$1 AND disconnected_at IS NULL ORDER BY created_at', [ownerId])).rows.map(c => ({ provider: c.provider as string, name: c.display_name as string }));
 
-    const result = await plan(ownerId, text, locale, timeZone, { history, pending, connections });
+    const jiraInfo = jira ? await jira.info(ownerId) : { connected: false, defaultProject: null };
+    const thread: Thread = { history, pending, connections, jira: jiraInfo };
+    let result = await plan(ownerId, text, locale, timeZone, thread);
+    let tables: ResultTable[] = [];
+    let lookedUp: { issues: number; types: string[] } | null = null;
+    if (result.lookups?.length && jira) {
+      // A lookup turn only reads and answers: proposals are never created or replaced here.
+      const outcome = await jira.run(ownerId, result.lookups, todayIn(timeZone));
+      if (!outcome) result = { reply: NOT_CONNECTED, tasks: [], pending: 'keep', lookups: [] };
+      else {
+        const answer = await plan(ownerId, text, locale, timeZone, { ...thread, lookupResults: outcome.digest });
+        const notes = [...new Set(outcome.notes)].join(' ');
+        lookedUp = { issues: outcome.issuesRead, types: [...new Set(outcome.digest.map(d => String((d as { type?: unknown }).type)))] };
+        result = { reply: [answer.reply, notes].filter(Boolean).join('\n\n').slice(0, 3000), tasks: [], pending: 'keep', lookups: [] };
+        tables = outcome.tables;
+      }
+    }
 
     return transaction(db, async client => {
       const tasks = await saveProposalsIn(client, ownerId, text, result.tasks, id);
+      // What was read is logged by count only: issue contents never go into Activity.
+      if (lookedUp) await client.query('INSERT INTO activity(id,owner_id,task_id,event,details) VALUES ($1,$2,NULL,$3,$4)', [randomUUID(), ownerId, 'jira.lookup', JSON.stringify(lookedUp)]);
       if (result.pending === 'replace') {
         for (const row of pendingRows) {
           // Only a still-undecided task can be superseded: a task approved in the meantime is left alone.
@@ -61,19 +93,19 @@ export function createConversationService(db: Queryable, plan: Plan) {
           if (updated.rows.length) await client.query('INSERT INTO activity(id,owner_id,task_id,event,details) VALUES ($1,$2,$3,$4,$5)', [randomUUID(), ownerId, row.id, 'task.replaced', JSON.stringify({ conversationId: id })]);
         }
       }
-      await client.query(`INSERT INTO messages (id,conversation_id,owner_id,role,content,task_ids,created_at) VALUES ($1,$2,$3,'user',$4,'[]',clock_timestamp()),($5,$2,$3,'assistant',$6,$7,clock_timestamp() + interval '1 millisecond')`, [randomUUID(), id, ownerId, text, randomUUID(), result.reply, JSON.stringify(tasks.map(t => t.id))]);
+      await client.query(`INSERT INTO messages (id,conversation_id,owner_id,role,content,task_ids,attachments,created_at) VALUES ($1,$2,$3,'user',$4,'[]','[]',clock_timestamp()),($5,$2,$3,'assistant',$6,$7,$8,clock_timestamp() + interval '1 millisecond')`, [randomUUID(), id, ownerId, text, randomUUID(), result.reply, JSON.stringify(tasks.map(t => t.id)), JSON.stringify(tables)]);
       await client.query('UPDATE conversations SET updated_at=now() WHERE id=$1', [id]);
-      return { conversationId: id, reply: result.reply, tasks };
+      return { conversationId: id, reply: result.reply, tasks, tables };
     });
   };
 
   async function view(ownerId: string, conversationId: string): Promise<{ conversationId: string; messages: StoredMessage[] }> {
-    const rows = (await db.query('SELECT id,role,content,task_ids,created_at FROM messages WHERE conversation_id=$1 AND owner_id=$2 ORDER BY created_at DESC, id DESC LIMIT 100', [conversationId, ownerId])).rows.reverse();
+    const rows = (await db.query('SELECT id,role,content,task_ids,attachments,created_at FROM messages WHERE conversation_id=$1 AND owner_id=$2 ORDER BY created_at DESC, id DESC LIMIT 100', [conversationId, ownerId])).rows.reverse();
     const ids = [...new Set(rows.flatMap(m => m.task_ids as string[]))];
     // Current state of each task, so a card shows approved, rejected or replaced as it is now.
     const found = ids.length ? (await db.query('SELECT id,action,state,parameters,version FROM tasks WHERE owner_id=$1 AND id = ANY($2::text[])', [ownerId, ids])).rows : [];
     const byId = new Map<string, TaskView>(found.map(t => [t.id as string, { id: t.id, action: t.action, state: t.state, version: t.version, connectionId: t.parameters.connectionId ?? null, destination: t.parameters.destination ?? null, parameters: t.parameters.fields ?? {}, uncertainties: t.parameters.uncertainties ?? [] }]));
-    return { conversationId, messages: rows.map(m => ({ id: m.id, role: m.role, content: m.content, createdAt: new Date(m.created_at).toISOString(), tasks: (m.task_ids as string[]).map(id => byId.get(id)).filter((t): t is TaskView => !!t) })) };
+    return { conversationId, messages: rows.map(m => ({ id: m.id, role: m.role, content: m.content, createdAt: new Date(m.created_at).toISOString(), tasks: (m.task_ids as string[]).map(id => byId.get(id)).filter((t): t is TaskView => !!t), tables: (m.attachments ?? []) as ResultTable[] })) };
   }
 
   async function latest(ownerId: string): Promise<{ conversationId: string | null; messages: StoredMessage[] }> {

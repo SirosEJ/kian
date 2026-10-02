@@ -90,7 +90,7 @@ export function Dashboard() {
       justSent.current = true;
       // Reload the thread so every card shows its current state (an earlier proposal may now be replaced).
       try { open(await apiRequest(`/conversations/${encodeURIComponent(result.conversationId)}`)); }
-      catch { setMessages(current => [...current.filter(m => m.id !== `pending-${stamp}`), { id: `u${stamp}`, role: 'user', content: text }, { id: `a${stamp}`, role: 'assistant', content: result.reply, tasks: result.tasks }]); }
+      catch { setMessages(current => [...current.filter(m => m.id !== `pending-${stamp}`), { id: `u${stamp}`, role: 'user', content: text }, { id: `a${stamp}`, role: 'assistant', content: result.reply, tasks: result.tasks, tables: result.tables }]); }
       void apiRequest('/tasks').then(setTasks).catch(() => {});
     } catch (failure) {
       setMessages(current => current.filter(m => m.id !== `pending-${stamp}`));

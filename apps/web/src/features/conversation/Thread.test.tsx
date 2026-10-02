@@ -3,7 +3,8 @@ import { renderToStaticMarkup } from 'react-dom/server';
 import { Thread } from './Thread.js';
 import { EXAMPLES, Welcome } from './Welcome.js';
 import { HistoryMenu } from './HistoryMenu.js';
-import { eventLabel } from '../trust/wording.js';
+import { activityTitle, eventLabel } from '../trust/wording.js';
+import { ResultTable } from './ResultTable.js';
 
 describe('conversation thread', () => {
   it('shows nothing before the first message', () => {
@@ -65,4 +66,39 @@ describe('chat screen pieces', () => {
     expect(html.match(/aria-current="true"/g)).toHaveLength(1);
     expect(renderToStaticMarkup(<HistoryMenu conversations={[]} currentId={null} onPick={() => {}} />)).toContain('No earlier conversations');
   });
+
+  describe('Jira result tables', () => {
+    const table = { title: 'Issues', columns: ['Key', 'Summary', 'Status'], rows: [['SFT-1', 'Do the thing', 'Done'], ['SFT-2', '<img src=x onerror=alert(1)>', 'To Do']], links: ['https://demo.atlassian.net/browse/SFT-1', null], note: '3 more not shown: narrow the question to see them.' };
+
+    it('shows headers, rows, a link on the key and the note, and lets a wide table scroll sideways', () => {
+      const html = renderToStaticMarkup(<ResultTable table={table} />);
+      expect(html).toContain('<figcaption>Issues</figcaption>');
+      expect(html.match(/<th /g)).toHaveLength(3);
+      expect(html.match(/<tr>/g)).toHaveLength(3);
+      expect(html).toContain('href="https://demo.atlassian.net/browse/SFT-1"');
+      expect(html).toContain('rel="noreferrer"');
+      expect(html).toContain('class="table-scroll"');
+      expect(html).toContain('3 more not shown');
+    });
+
+    it('treats Jira text as text, never as markup, and does not link a row that has no link', () => {
+      const html = renderToStaticMarkup(<ResultTable table={table} />);
+      expect(html).not.toContain('<img');
+      expect(html).toContain('&lt;img');
+      expect(html.match(/<a /g)).toHaveLength(1);
+    });
+
+    it('puts the tables under the reply that produced them', () => {
+      const html = renderToStaticMarkup(<Thread messages={[{ id: '1', role: 'user', content: 'list' }, { id: '2', role: 'assistant', content: 'Found two.', tables: [table] }, { id: '3', role: 'user', content: 'thanks' }]} />);
+      expect(html.indexOf('Found two.')).toBeLessThan(html.indexOf('SFT-1'));
+      expect(html.indexOf('SFT-1')).toBeLessThan(html.indexOf('thanks'));
+    });
+
+    it('names a lookup in Activity plainly', () => {
+      expect(activityTitle(null, null, 'jira.lookup')).toBe('Jira lookup');
+      expect(eventLabel('jira.lookup')).toMatch(/nothing was changed/);
+      expect(activityTitle('email.send', 'sam@example.com', 'task.approved')).toBe('Send email to sam@example.com');
+    });
+  });
 });
+

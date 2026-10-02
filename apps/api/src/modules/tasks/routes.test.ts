@@ -58,10 +58,10 @@ describe('task intake routes', () => {
   it('sends a message into a saved conversation and returns the conversation id with Kian\'s reply', async () => {
     const seen: unknown[] = [];
     const app = Fastify();
-    registerTaskRoutes(app, { authenticate: auth, plan: async () => ({ reply: '', tasks: [] }), save: async () => {}, converse: async (owner, input) => { seen.push({ owner, ...input }); return { conversationId: 'c1', reply: 'When?', tasks: [] }; } });
+    registerTaskRoutes(app, { authenticate: auth, plan: async () => ({ reply: '', tasks: [] }), save: async () => {}, converse: async (owner, input) => { seen.push({ owner, ...input }); return { conversationId: 'c1', reply: 'When?', tasks: [], tables: [] }; } });
     const response = await app.inject({ method: 'POST', url: '/instructions', payload: { text: 'Plan a meeting', conversationId: 'c1', locale: 'en-GB', timeZone: 'Europe/London' } });
     expect(response.statusCode).toBe(201);
-    expect(response.json()).toEqual({ conversationId: 'c1', reply: 'When?', tasks: [] });
+    expect(response.json()).toEqual({ conversationId: 'c1', reply: 'When?', tasks: [], tables: [] });
     expect(seen).toEqual([{ owner: 'alice', text: 'Plan a meeting', conversationId: 'c1', locale: 'en-GB', timeZone: 'Europe/London' }]);
     expect((await app.inject({ method: 'POST', url: '/instructions', payload: { text: 'x', conversationId: 5 } })).statusCode).toBe(400);
     await app.close();

@@ -7,6 +7,7 @@ import { createRequireUser, requireUser, type VerifyToken } from './modules/iden
 import { planInstruction } from './modules/tasks/plan.js';
 import { registerTaskRoutes, type TaskRoutes } from './modules/tasks/routes.js';
 import { createConversationService } from './modules/conversations/service.js';
+import { createJiraLookupPort } from './modules/jira-insights/port.js';
 import { saveProposals } from './modules/tasks/store.js';
 import { registerDecisionRoutes } from './modules/tasks/activity.js';
 import { registerConnectionRoutes } from './modules/connections/routes.js';
@@ -57,7 +58,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   });
   if (options.taskRoutes) registerTaskRoutes(app, options.taskRoutes);
   else if (pool) {
-    const conversations = createConversationService(pool, planInstruction);
+    const conversations = createConversationService(pool, planInstruction, jira ? createJiraLookupPort(pool, jira) : undefined);
     registerTaskRoutes(app, {
       authenticate,
       plan: planInstruction,

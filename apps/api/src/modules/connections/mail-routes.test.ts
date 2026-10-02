@@ -12,6 +12,7 @@ describe('mailbox settings',()=>{
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/001_core.sql',import.meta.url),'utf8'));
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/002_conversations.sql',import.meta.url),'utf8'));
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/003_message_tasks.sql',import.meta.url),'utf8'));
+    await db.exec(await readFile(new URL('../../../../../packages/db/migrations/004_message_tables.sql',import.meta.url),'utf8'));
     const app=Fastify(),key=Buffer.alloc(32,2);
     const mail=new IonosMailConnector(()=>({verify:async()=>true,sendMail:async()=>({}),close:()=>{}}));
     registerMailConnectionRoutes(app,db,async()=> 'alice',key,mail);
@@ -33,6 +34,7 @@ describe('mailbox status and credential update',()=>{
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/001_core.sql',import.meta.url),'utf8'));
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/002_conversations.sql',import.meta.url),'utf8'));
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/003_message_tasks.sql',import.meta.url),'utf8'));
+    await db.exec(await readFile(new URL('../../../../../packages/db/migrations/004_message_tables.sql',import.meta.url),'utf8'));
     const app=Fastify(),key=Buffer.alloc(32,2);
     const mail=new IonosMailConnector(()=>({verify,sendMail:async()=>({}),close:()=>{}}));
     registerMailConnectionRoutes(app,db,async req=>req.headers.authorization==='Bearer bob' ? 'bob':'alice',key,mail);

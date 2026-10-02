@@ -10,6 +10,7 @@ describe('Google connection lifecycle',()=>{
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/001_core.sql',import.meta.url),'utf8'));
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/002_conversations.sql',import.meta.url),'utf8'));
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/003_message_tasks.sql',import.meta.url),'utf8'));
+    await db.exec(await readFile(new URL('../../../../../packages/db/migrations/004_message_tables.sql',import.meta.url),'utf8'));
     const key=Buffer.alloc(32,1);
     await db.query("INSERT INTO users(id) VALUES ('alice')");
     await db.query("INSERT INTO connections(id,owner_id,provider,display_name,secret_ciphertext) VALUES ('g','alice','google_calendar','Calendar',$1)",[encryptSecret({access_token:'expired',refresh_token:'refresh',expires_at:1},key)]);
@@ -26,6 +27,7 @@ describe('Google connection lifecycle',()=>{
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/001_core.sql',import.meta.url),'utf8'));
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/002_conversations.sql',import.meta.url),'utf8'));
     await db.exec(await readFile(new URL('../../../../../packages/db/migrations/003_message_tasks.sql',import.meta.url),'utf8'));
+    await db.exec(await readFile(new URL('../../../../../packages/db/migrations/004_message_tables.sql',import.meta.url),'utf8'));
     const fetcher=vi.fn(async (url:string)=>url.includes('oauth2.googleapis.com') ? new Response(JSON.stringify({access_token:'access-secret',refresh_token:'refresh-secret',expires_in:3600}),{status:200}) : new Response(JSON.stringify({items:[{id:'primary',summary:'Personal',accessRole:'owner'}]}),{status:200}));
     const app=Fastify();
     registerConnectionRoutes(app,db,async request=>request.headers.authorization === 'Bearer alice' ? 'alice':'bob',{clientId:'cid',clientSecret:'secret',redirectUri:'https://kian.example/settings',encryptionKey:Buffer.alloc(32,1),request:fetcher as typeof fetch});

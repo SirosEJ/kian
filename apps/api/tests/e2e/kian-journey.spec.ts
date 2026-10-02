@@ -12,6 +12,7 @@ describe('multi-task sandbox journey',()=>{
     await db.exec(await readFile(new URL('../../../../packages/db/migrations/001_core.sql',import.meta.url),'utf8'));
     await db.exec(await readFile(new URL('../../../../packages/db/migrations/002_conversations.sql',import.meta.url),'utf8'));
     await db.exec(await readFile(new URL('../../../../packages/db/migrations/003_message_tasks.sql',import.meta.url),'utf8'));
+    await db.exec(await readFile(new URL('../../../../packages/db/migrations/004_message_tables.sql',import.meta.url),'utf8'));
     await db.query<Record<string,unknown>>("INSERT INTO users(id) VALUES ('alice')");
     const complete:Record<string,object>={'calendar.create':{summary:'Planning',start:'2026-10-02T15:00:00+01:00',end:'2026-10-02T15:30:00+01:00'},'jira.create':{summary:'Fix login'},'email.send':{to:['to@example.com'],subject:'Agenda',body:'See you there'}};
     for(const [id,action] of [['event','calendar.create'],['story','jira.create'],['mail','email.send'],['reject','email.send']]) await db.query<Record<string,unknown>>("INSERT INTO tasks(id,owner_id,action,state,parameters) VALUES ($1,'alice',$2,'proposed',$3)",[id,action,JSON.stringify({connectionId:'connection',destination:'demo',fields:complete[action],uncertainties:[]})]);
