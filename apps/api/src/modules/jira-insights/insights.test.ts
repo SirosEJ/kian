@@ -135,3 +135,16 @@ describe('saying what was searched', () => {
   });
 });
 
+describe('what a lookup teaches the memory', () => {
+  it('offers the people, the projects and the epics it just read, once each, and never Unassigned', async () => {
+    const { reader } = fake(() => [row('SFT-1', { assignee: 'Solmaz Y', reporter: 'Siros EJ' }), row('SFT-2', { assignee: 'Solmaz Y', reporter: 'Siros EJ' }), row('AB-9', { assignee: null, reporter: 'Siros EJ', type: 'Epic', summary: 'Onboarding Automation' })]);
+    const outcome = await createInsights(reader).run(connection, [{ type: 'search', project: 'SFT' }], today);
+    const terms = (outcome.learned ?? []).map(t => `${t.kind}:${t.value}${t.detail ? `|${t.detail}` : ''}`).sort();
+    expect(terms).toEqual(['epic:Onboarding Automation|AB-9', 'person:Siros EJ|Jira', 'person:Solmaz Y|Jira', 'project:AB|Jira project', 'project:SFT|Jira project']);
+  });
+  it('learns nothing from a lookup that failed', async () => {
+    const reader: Reader = { search: async () => { throw new JiraReadError('forbidden', 'no'); }, issue: async () => { throw new JiraReadError('forbidden', 'no'); } };
+    expect((await createInsights(reader).run(connection, [{ type: 'search', project: 'SFT' }], today)).learned).toBeUndefined();
+  });
+});
+

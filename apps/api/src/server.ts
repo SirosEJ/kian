@@ -8,6 +8,8 @@ import { planInstruction } from './modules/tasks/plan.js';
 import { registerTaskRoutes, type TaskRoutes } from './modules/tasks/routes.js';
 import { createConversationService } from './modules/conversations/service.js';
 import { createJiraLookupPort } from './modules/jira-insights/port.js';
+import { createMemoryStore } from './modules/memory/store.js';
+import { registerMemoryRoutes } from './modules/memory/routes.js';
 import { createCalendarLookupPort } from './modules/calendar-insights/port.js';
 import { saveProposals } from './modules/tasks/store.js';
 import { registerDecisionRoutes } from './modules/tasks/activity.js';
@@ -43,7 +45,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   const encryptionKey=process.env.KIAN_ENCRYPTION_KEY ? Buffer.from(process.env.KIAN_ENCRYPTION_KEY,'base64'):null;
   const google=process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET && process.env.GOOGLE_REDIRECT_URI && encryptionKey ? {clientId:process.env.GOOGLE_CLIENT_ID,clientSecret:process.env.GOOGLE_CLIENT_SECRET,redirectUri:process.env.GOOGLE_REDIRECT_URI,encryptionKey}:undefined;
   const jira=process.env.JIRA_CLIENT_ID && process.env.JIRA_CLIENT_SECRET && process.env.JIRA_REDIRECT_URI && encryptionKey ? {clientId:process.env.JIRA_CLIENT_ID,clientSecret:process.env.JIRA_CLIENT_SECRET,redirectUri:process.env.JIRA_REDIRECT_URI,encryptionKey}:undefined;
-  const runner=pool && encryptionKey ? createRunner(pool,createProviderExecutor(pool,encryptionKey,google,jira)):null;
+  const runner=pool && encryptionKey ? createRunner(pool,createProviderExecutor(pool,encryptionKey,google,jira),true):null;
   app.get('/tasks',async(request,reply)=>{
     const owner=await authenticate(request);
     if(!pool) return reply.code(503).send({error:'Database unavailable'});
@@ -59,7 +61,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   });
   if (options.taskRoutes) registerTaskRoutes(app, options.taskRoutes);
   else if (pool) {
-    const conversations = createConversationService(pool, planInstruction, jira ? createJiraLookupPort(pool, jira) : undefined, google ? createCalendarLookupPort(pool, google) : undefined);
+    const conversations = createConversationService(pool, planInstruction, jira ? createJiraLookupPort(pool, jira) : undefined, google ? createCalendarLookupPort(pool, google) : undefined, createMemoryStore(pool));
     registerTaskRoutes(app, {
       authenticate,
       plan: planInstruction,
@@ -69,6 +71,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
     });
   }
   if (pool) registerAccountRoutes(app,pool,authenticate);
+  if (pool) registerMemoryRoutes(app,createMemoryStore(pool),authenticate);
   if (pool) registerDecisionRoutes(app, pool, authenticate,runner ? (owner,id)=>runner.run(owner,id):undefined);
   if (pool && process.env.KIAN_ENCRYPTION_KEY) registerConnectionRoutes(app,pool,authenticate,{clientId:process.env.GOOGLE_CLIENT_ID || '',clientSecret:process.env.GOOGLE_CLIENT_SECRET || '',redirectUri:process.env.GOOGLE_REDIRECT_URI || '',encryptionKey:Buffer.from(process.env.KIAN_ENCRYPTION_KEY,'base64')});
   if (pool && process.env.JIRA_CLIENT_ID && process.env.JIRA_CLIENT_SECRET && process.env.JIRA_REDIRECT_URI && process.env.KIAN_ENCRYPTION_KEY) registerJiraConnectionRoutes(app,pool,authenticate,{clientId:process.env.JIRA_CLIENT_ID,clientSecret:process.env.JIRA_CLIENT_SECRET,redirectUri:process.env.JIRA_REDIRECT_URI,encryptionKey:Buffer.from(process.env.KIAN_ENCRYPTION_KEY,'base64')});

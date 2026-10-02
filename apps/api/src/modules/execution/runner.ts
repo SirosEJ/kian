@@ -4,9 +4,11 @@ import type { ExecutionResult } from '@kian/contracts';
 import { evaluateTrust } from '../trust/policy.js';
 import type { StoredProposal } from '../tasks/approval.js';
 import { transaction } from '../transaction.js';
+import { learnTerms } from '../memory/store.js';
 
 export type Executor=(owner:string,task:Task,key:string)=>Promise<ExecutionResult>;
-export function createRunner(db:Queryable,execute:Executor) {
+/** `remember`: switched on in the app so that people an approved email went to are added to the user's memory; tests that do not have the memory table leave it off. */
+export function createRunner(db:Queryable,execute:Executor,remember=false) {
   return {
     async run(owner:string,id:string):Promise<ExecutionResult|null> {
       const task=(await db.query("SELECT id,owner_id,action,state,parameters,version FROM tasks WHERE owner_id=$1 AND id=$2 AND state='queued'",[owner,id])).rows[0] as Task|undefined;
@@ -32,6 +34,13 @@ export function createRunner(db:Queryable,execute:Executor) {
         if(!saved.rows.length) {result={status:'uncertain',error:'Execution exceeded the recovery deadline. Check the provider.'};return;}
         await client.query('UPDATE tasks SET state=$4 WHERE owner_id=$1 AND id=$2 AND version=$3',[owner,id,task.version,result.status]);
         await client.query('INSERT INTO activity(id,owner_id,task_id,event,details) VALUES ($1,$2,$3,$4,$5)',[randomUUID(),owner,id,`task.${result.status}`,JSON.stringify(result)]);
+        // An email the user approved and that was sent: its recipients (addresses the user wrote themselves) are remembered, never the message.
+        if(remember && result.status==='succeeded' && task.action==='email.send') {
+          const to=(proposal.fields as {to?:unknown}).to;
+          const people=(Array.isArray(to) ? to:[]).filter((a):a is string=>typeof a==='string' && /^[^\s@]+@[^\s@]+$/.test(a)).slice(0,5).map(a=>({kind:'person' as const,value:a,detail:'Emailed'}));
+          const added=await learnTerms(client,owner,people,'email');
+          if(added>0) await client.query('INSERT INTO activity(id,owner_id,task_id,event,details) VALUES ($1,$2,NULL,$3,$4)',[randomUUID(),owner,'memory.learned',JSON.stringify({terms:added})]);
+        }
       });
       return result;
     },

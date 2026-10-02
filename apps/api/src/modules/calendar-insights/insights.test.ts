@@ -147,3 +147,22 @@ describe('problems', () => {
     expect(Object.keys(fake([]).reader).sort()).toEqual(['calendars', 'details', 'event', 'events']);
   });
 });
+
+describe('what a calendar lookup teaches the memory', () => {
+  it('learns attendee names only when asked about one event, and never addresses or event titles', async () => {
+    const { reader } = fake([ev('a', '10:00', '10:30')], { details: async () => [{ ...ev('a', '10:00', '10:30'), description: 'd', attendees: [{ name: 'Sam Jones', email: 'sam@example.com', response: 'accepted' }, { name: '', email: 'x@example.com', response: '' }] }] });
+    const plain = await createCalendarInsights(reader).run(conn, [{ type: 'calendar.agenda', from: '2026-10-03' }], ctx);
+    expect(plain.learned).toBeUndefined();
+    const asked = await createCalendarInsights(reader).run(conn, [{ type: 'calendar.agenda', from: '2026-10-03', text: 'Event a', details: true }], ctx);
+    expect(asked.learned).toEqual([{ kind: 'person', value: 'Sam Jones', detail: 'Calendar attendee' }]);
+    expect(JSON.stringify(asked.learned)).not.toContain('@');
+  });
+  it('remembers a calendar the user named, and keeps nothing between runs', async () => {
+    const { reader } = fake([ev('a', '10:00', '10:30')]);
+    const insights = createCalendarInsights(reader);
+    const named = await insights.run(conn, [{ type: 'calendar.next', calendar: 'Team calendar' }], ctx);
+    expect(named.learned).toEqual([{ kind: 'calendar', value: 'Team calendar', detail: 'Google Calendar' }]);
+    expect((await insights.run(conn, [{ type: 'calendar.next' }], ctx)).learned).toBeUndefined();
+  });
+});
+

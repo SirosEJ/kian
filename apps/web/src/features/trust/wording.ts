@@ -32,6 +32,7 @@ const eventLabels: Record<string, string> = {
   'task.replaced': 'Replaced by your later message in the conversation, so it was never approved or run',
   'jira.lookup': 'Kian read from Jira to answer you (nothing was changed)',
   'calendar.lookup': 'Kian read your Google Calendar to answer you (nothing was changed)',
+  'memory.learned': 'Kian remembered new names (you can see and delete them in Settings)',
   'task.succeeded': 'Done',
   'task.failed': 'Failed, nothing was changed',
   'task.uncertain': 'Outcome unknown: check the result yourself before trying again',
@@ -43,6 +44,7 @@ export function eventLabel(event: string): string {
 export function activityTitle(action?: string | null, destination?: string | null, event?: string): string {
   if (event === 'jira.lookup') return 'Jira lookup';
   if (event === 'calendar.lookup') return 'Calendar lookup';
+  if (event === 'memory.learned') return 'Kian learned';
   const name = action ? (actionNames[action] ?? action) : 'Task';
   return destination ? `${name} to ${destination}` : name;
 }

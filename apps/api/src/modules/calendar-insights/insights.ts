@@ -39,12 +39,14 @@ const compact = (e: CalendarEventRow, timeZone: string) => { const w = when(e, t
  * Google problem (it becomes a note), and hands back tables built from the real events. Event text is untrusted data.
  */
 export function createCalendarInsights(reader: CalendarReader) {
-  async function resolve(conn: CalendarConnection, name: string | undefined, notes: string[]): Promise<string> {
+  // What is learned (calendar names the user mentioned, attendee names they asked about) goes on the outcome of each run: never addresses, event titles or descriptions, and never shared between runs.
+  async function resolve(conn: CalendarConnection, name: string | undefined, out: LookupOutcome): Promise<string> {
+    const notes = out.notes;
     if (!name) return conn.calendarId;
     const calendars = await reader.calendars(conn);
     const wanted = name.trim().toLowerCase();
     const found = calendars.find(c => c.name.toLowerCase() === wanted || c.id.toLowerCase() === wanted) ?? calendars.find(c => c.name.toLowerCase().includes(wanted));
-    if (found) return found.id;
+    if (found) { (out.learned ??= []).push({ kind: 'calendar', value: found.name, detail: 'Google Calendar' }); return found.id; }
     notes.push(`I could not find a calendar called "${name}", so I used your selected calendar.`);
     return conn.calendarId;
   }
@@ -55,7 +57,7 @@ export function createCalendarInsights(reader: CalendarReader) {
       const from = clampDay(lookup.from, ctx.today, out.notes) ?? ctx.today;
       const to = clampDay(lookup.to, ctx.today, out.notes) ?? from;
       const last = to < from ? from : to;
-      const calendarId = await resolve(conn, lookup.calendar, out.notes);
+      const calendarId = await resolve(conn, lookup.calendar, out);
       const min = zonedInstant(from, '00:00', timeZone), max = zonedInstant(addDays(last, 1), '00:00', timeZone);
       const result = await reader.events(conn, calendarId, min, max, { q: lookup.text, max: CAL_LIMITS.events });
       out.issuesRead += result.events.length;
@@ -65,13 +67,14 @@ export function createCalendarInsights(reader: CalendarReader) {
       const entry: Record<string, unknown> = { type: 'calendar.agenda', from, to: last, count: shown.length, declinedHidden: declined, moreExist: result.truncated, events: shown.slice(0, CAL_LIMITS.digestRows).map(e => compact(e, timeZone)) };
       if (lookup.details && lookup.text) {
         const details = await reader.details(conn, calendarId, min, max, lookup.text, CAL_LIMITS.detailEvents);
+        for (const d of details) for (const a of d.attendees) if (a.name) (out.learned ??= []).push({ kind: 'person', value: a.name, detail: 'Calendar attendee' });
         entry.details = details.map(d => ({ title: d.title, day: when(d, timeZone).day, time: when(d, timeZone).time, description: d.description, attendees: d.attendees }));
       }
       out.digest.push(entry);
     } else if (lookup.type === 'calendar.free') {
       const day = clampDay(lookup.date, ctx.today, out.notes) ?? ctx.today;
       const startTime = lookup.startTime ?? '09:00', endTime = lookup.endTime ?? '18:00';
-      const calendarId = await resolve(conn, lookup.calendar, out.notes);
+      const calendarId = await resolve(conn, lookup.calendar, out);
       const ws = zonedInstant(day, startTime, timeZone), we = zonedInstant(day, endTime, timeZone);
       if (Date.parse(we) <= Date.parse(ws)) { out.notes.push('The end of that window is not after its start, so I could not check it.'); out.digest.push({ type: 'calendar.free', error: 'invalid window' }); return; }
       const result = await reader.events(conn, calendarId, ws, we, { max: CAL_LIMITS.events });
@@ -97,7 +100,7 @@ export function createCalendarInsights(reader: CalendarReader) {
       out.tables.push({ title: `Free and busy, ${dayLabel(day)} ${startTime}–${endTime}`, columns: ['Status', 'Time', 'Details'], rows: segments.map(s => [s.kind, `${timeOf(s.from, timeZone)}–${timeOf(s.to, timeZone)}`, s.detail]), links: segments.map(() => null), note: [allDay.length ? `All-day: ${allDay.join('; ')}.` : '', result.truncated ? 'The list was cut short.' : ''].filter(Boolean).join(' ') || undefined });
       out.digest.push({ type: 'calendar.free', day, window: `${startTime}-${endTime}`, busy: busy.map(b => ({ from: timeOf(b.from, timeZone), to: timeOf(b.to, timeZone), titles: [...new Set(b.titles)].slice(0, 5) })), free: free.map(f => ({ from: timeOf(f.from, timeZone), to: timeOf(f.to, timeZone), minutes: minutesBetween(f.from, f.to) })), allDayEvents: allDay.slice(0, 5), longestFreeMinutes: longest, ...(wanted ? { wantedMinutes: wanted, fits: longest >= wanted } : {}) });
     } else {
-      const calendarId = await resolve(conn, lookup.calendar, out.notes);
+      const calendarId = await resolve(conn, lookup.calendar, out);
       const from = ctx.now.toISOString(), to = new Date(ctx.now.getTime() + CAL_LIMITS.windowDays * 86400000).toISOString();
       const result = await reader.events(conn, calendarId, from, to, { q: lookup.text, max: 30 });
       out.issuesRead += result.events.length;

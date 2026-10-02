@@ -6,6 +6,7 @@ import type { Lookup } from '../jira-insights/lookups.js';
 import type { CalendarLookup } from '../calendar-insights/lookups.js';
 import type { CalendarContext } from '../calendar-insights/insights.js';
 import type { LookupOutcome, ResultTable } from '../jira-insights/insights.js';
+import { learnTerms, type LearnedTerm, type MemoryStore } from '../memory/store.js';
 import { prepareDeletes } from '../calendar-insights/deletes.js';
 import { prepareTransitions, type TransitionChecker } from '../jira-insights/transitions.js';
 import { saveProposalsIn } from '../tasks/store.js';
@@ -66,7 +67,7 @@ export function shownNote(tables: ResultTable[] | null | undefined): string {
 const NOT_CONNECTED = 'I could not find a connected Jira site. Connect Jira under Settings (open it from your profile at the top right) and ask me again.';
 const CALENDAR_NOT_CONNECTED = 'I could not find a connected Google Calendar. Connect it under Settings (open it from your profile at the top right) and ask me again.';
 
-export function createConversationService(db: Queryable, plan: Plan, jira?: JiraLookupPort, calendar?: CalendarLookupPort) {
+export function createConversationService(db: Queryable, plan: Plan, jira?: JiraLookupPort, calendar?: CalendarLookupPort, memory?: MemoryStore) {
   async function ownedConversation(ownerId: string, conversationId: string): Promise<string> {
     const row = (await db.query('SELECT id FROM conversations WHERE id=$1 AND owner_id=$2', [conversationId, ownerId])).rows[0];
     if (!row) throw new ConversationError(404, 'Conversation not found');
@@ -98,8 +99,13 @@ export function createConversationService(db: Queryable, plan: Plan, jira?: Jira
 
     const jiraInfo = jira ? await jira.info(ownerId) : { connected: false, defaultProject: null };
     const calendarInfo = calendar ? await calendar.info(ownerId) : { connected: false };
-    const thread: Thread = { history, pending, connections, jira: jiraInfo, calendar: calendarInfo };
+    // What Kian remembers that matters for this message and the one before it (names, projects, epics, spoken-form corrections).
+    const lastUser = [...history].reverse().find(m => m.role === 'user')?.content;
+    const hints = memory ? await memory.relevant(ownerId, lastUser ? [text, lastUser] : [text]) : [];
+    const thread: Thread = { history, pending, connections, jira: jiraInfo, calendar: calendarInfo, ...(hints.length ? { memory: hints } : {}) };
     let result = await plan(ownerId, text, locale, timeZone, thread);
+    const toldByUser: LearnedTerm[] = result.learn ?? [];
+    let learnedFromJira: LearnedTerm[] = [], learnedFromCalendar: LearnedTerm[] = [];
     let tables: ResultTable[] = [];
     let lookedUp: { issues: number; types: string[] } | null = null;
     let calendarLookedUp: { events: number } | null = null;
@@ -116,6 +122,8 @@ export function createConversationService(db: Queryable, plan: Plan, jira?: Jira
         const digest = outcomes.flatMap(o => o.digest);
         const answer = await plan(ownerId, text, locale, timeZone, { ...thread, lookupResults: digest });
         const notes = [...new Set(outcomes.flatMap(o => o.notes))].join(' ');
+        learnedFromJira = jiraOutcome?.learned ?? [];
+        learnedFromCalendar = calendarOutcome?.learned ?? [];
         if (jiraOutcome) lookedUp = { issues: jiraOutcome.issuesRead, types: [...new Set(jiraOutcome.digest.map(d => String((d as { type?: unknown }).type)))] };
         if (calendarOutcome) calendarLookedUp = { events: calendarOutcome.issuesRead };
         result = { reply: [answer.reply, notes].filter(Boolean).join('\n\n').slice(0, 3000), tasks: [], pending: 'keep', lookups: [] };
@@ -133,6 +141,11 @@ export function createConversationService(db: Queryable, plan: Plan, jira?: Jira
       const tasks = await saveProposalsIn(client, ownerId, text, result.tasks, id);
       // What was read is logged by count only: issue contents never go into Activity.
       if (lookedUp) await client.query('INSERT INTO activity(id,owner_id,task_id,event,details) VALUES ($1,$2,NULL,$3,$4)', [randomUUID(), ownerId, 'jira.lookup', JSON.stringify(lookedUp)]);
+      // Names the lookups revealed and the user's own corrections go into their memory (a count is logged, never the names).
+      if (memory) {
+        const added = (await learnTerms(client, ownerId, learnedFromJira, 'jira')) + (await learnTerms(client, ownerId, learnedFromCalendar, 'calendar')) + (await learnTerms(client, ownerId, toldByUser, 'chat'));
+        if (added > 0) await client.query('INSERT INTO activity(id,owner_id,task_id,event,details) VALUES ($1,$2,NULL,$3,$4)', [randomUUID(), ownerId, 'memory.learned', JSON.stringify({ terms: added })]);
+      }
       if (calendarLookedUp) await client.query('INSERT INTO activity(id,owner_id,task_id,event,details) VALUES ($1,$2,NULL,$3,$4)', [randomUUID(), ownerId, 'calendar.lookup', JSON.stringify(calendarLookedUp)]);
       if (result.pending === 'replace') {
         for (const row of pendingRows) {
