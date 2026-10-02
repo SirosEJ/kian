@@ -127,7 +127,7 @@ jobs:
             SECRETS="$SECRETS,GOOGLE_CLIENT_SECRET=kian-google-client-secret:latest"
           fi
           if [ -n "$JIRA_CLIENT_ID" ]; then
-            ENVS="$ENVS,JIRA_CLIENT_ID=$JIRA_CLIENT_ID,JIRA_REDIRECT_URI=${PUBLIC_URL}"
+            ENVS="$ENVS,JIRA_CLIENT_ID=$JIRA_CLIENT_ID,JIRA_REDIRECT_URI=${PUBLIC_URL%/}"
             SECRETS="$SECRETS,JIRA_CLIENT_SECRET=kian-jira-client-secret:latest"
           fi
           echo "envs=$ENVS" >> "$GITHUB_OUTPUT"
