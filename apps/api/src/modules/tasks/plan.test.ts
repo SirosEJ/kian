@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildChatMessages, CAPABILITIES, createPlanner, PLANNER_INSTRUCTIONS, planningModels, type PlanContext, type Thread } from './plan.js';
+import { buildChatMessages, CAPABILITIES, createPlanner, knownIssueKeys, PLANNER_INSTRUCTIONS, planningModels, type PlanContext, type Thread } from './plan.js';
 
 const item = (action: string, destination: string | null = null, parameters: Record<string, unknown> = {}, uncertainties: string[] = []) => ({ action, connectionId: null, destination, parameters, uncertainties });
 const email = (to: string[], uncertainties: string[] = []) => item('email.send', to.length === 1 ? to[0] : null, { to, subject: 'Hi', body: 'Hello' }, uncertainties);
@@ -296,7 +296,7 @@ describe('Jira lookups in the planner', () => {
 describe('Jira status changes in the planner', () => {
   const t: Thread = { history: [], pending: [], connections: [{ provider: 'jira', name: 'Jira Cloud' }], jira: { connected: true, defaultProject: 'SFT' } };
   const move = (parameters: Record<string, unknown>) => item('jira.transition', null, parameters);
-  const planWith = (answer: unknown, thread: Thread = t) => createPlanner(async () => answer)('alice', 'change 269 to In Progress', 'en-GB', 'Europe/London', thread);
+  const planWith = (answer: unknown, thread: Thread = t, text = 'change 269 to In Progress, and SFT-1, sft-12, 99, SFT-99 too') => createPlanner(async () => answer)('alice', text, 'en-GB', 'Europe/London', thread);
 
   it('turns a bare number into a key in the project chosen in Settings, and upper-cases a key', async () => {
     const { tasks } = await planWith({ reply: 'Prepared.', tasks: [move({ issueKey: '269', toStatus: 'In Progress' }), move({ issueKey: 'sft-12', toStatus: 'Done' })] });
@@ -313,8 +313,8 @@ describe('Jira status changes in the planner', () => {
 
   it('accepts up to 20 status changes in one message and no more', async () => {
     const twenty = Array.from({ length: 20 }, (_, i) => move({ issueKey: `SFT-${i + 1}`, toStatus: 'Done' }));
-    expect((await planWith({ reply: 'ok', tasks: twenty })).tasks).toHaveLength(20);
-    expect((await planWith({ reply: 'ok', tasks: [...twenty, move({ issueKey: 'SFT-99', toStatus: 'Done' })] })).reply).toMatch(/could not turn that into something/);
+    expect((await planWith({ reply: 'ok', tasks: twenty }, t, 'yes move SFT-1 SFT-2 SFT-3 SFT-4 SFT-5 SFT-6 SFT-7 SFT-8 SFT-9 SFT-10 SFT-11 SFT-12 SFT-13 SFT-14 SFT-15 SFT-16 SFT-17 SFT-18 SFT-19 SFT-20 SFT-99')).tasks).toHaveLength(20);
+    expect((await planWith({ reply: 'ok', tasks: [...twenty, move({ issueKey: 'SFT-99', toStatus: 'Done' })] }, t, 'yes move SFT-1 SFT-99')).reply).toMatch(/could not turn that into something/);
   });
 
   it('tells the model how to ask for status changes, and to use only the keys it was shown', () => {
@@ -477,5 +477,69 @@ describe('memory in the planner', () => {
   it('never learns on the second pass of a lookup, whatever the model returns', async () => {
     const result = await run({ reply: 'Words.', learn: [{ kind: 'person', value: 'Sol' }] }, 'Sol', { ...base, lookupResults: [{ type: 'search' }] });
     expect(result.learn).toBeUndefined();
+  });
+});
+
+describe('only issues the user named or Kian showed', () => {
+  const base: Thread = { history: [], pending: [], connections: [{ provider: 'jira', name: 'Jira Cloud' }], jira: { connected: true, defaultProject: 'SFT' } };
+  const move = (issueKey: string) => item('jira.transition', null, { issueKey, toStatus: 'Done' });
+  const upd = (issueKey: string) => item('jira.update', null, { issueKey, summary: 'New title', issueTypeId: '10001' });
+  const shown: Thread = { ...base, history: [{ role: 'user', content: 'show my deployed stories' }, { role: 'assistant', content: 'Here they are.\n[Shown earlier: Issues (searched: project SFT, status Deployed): SFT-275, SFT-274]' }] };
+  const scripted = (...answers: unknown[]) => { const contexts: PlanContext[] = []; let n = 0; return { planner: createPlanner(async (_t, _l, _z, c) => { contexts.push(c); return answers[Math.min(n++, answers.length - 1)]; }), contexts }; };
+  const run = (planner: ReturnType<typeof createPlanner>, text: string, thread: Thread = base) => planner('alice', text, 'en-GB', 'Europe/London', thread);
+
+  it('refuses keys the model produced from nowhere, and repairs the answer into a Jira search first', async () => {
+    const search = { type: 'search', project: 'SFT', statuses: ['Deployed'] };
+    const { planner, contexts } = scripted({ reply: 'I can move your stories.', tasks: [move('SFT-294'), move('SFT-223')] }, { reply: 'Looking.', lookups: [search] });
+    const result = await run(planner, 'move all my stories in deployed status into Done');
+    expect(contexts).toHaveLength(2);
+    expect(contexts[1].repair).toMatch(/SFT-294, SFT-223 were not written by the user and were never shown/);
+    expect(contexts[1].repair).toMatch(/search/);
+    expect(result.tasks).toEqual([]);
+    expect(result.lookups).toEqual([search]);
+  });
+
+  it('says plainly that nothing was prepared when the retry guesses again', async () => {
+    const { planner } = scripted({ reply: 'Ready.', tasks: [move('SFT-294')] });
+    const result = await run(planner, 'move all my stories in deployed status into Done');
+    expect(result.tasks).toEqual([]);
+    expect(result.reply).toMatch(/nothing was prepared or changed/);
+  });
+
+  it('accepts a key the user wrote, a bare number, and a key Kian showed earlier', async () => {
+    const written = await run(scripted({ reply: 'Ready.', tasks: [move('SFT-12')] }).planner, 'move sft-12 to Done');
+    expect(written.tasks.map(t => t.parameters.issueKey)).toEqual(['SFT-12']);
+    const bare = await run(scripted({ reply: 'Ready.', tasks: [move('269')] }).planner, 'change 269 to Done');
+    expect(bare.tasks.map(t => t.parameters.issueKey)).toEqual(['SFT-269']);
+    const fromTable = await run(scripted({ reply: 'Ready.', tasks: [move('SFT-275'), move('SFT-274')] }).planner, 'yes move them to Done', shown);
+    expect(fromTable.tasks.map(t => t.parameters.issueKey)).toEqual(['SFT-275', 'SFT-274']);
+    const earlierUser = await run(scripted({ reply: 'Ready.', tasks: [move('SFT-9')] }).planner, 'yes do it', { ...base, history: [{ role: 'user', content: 'finish SFT-9 please' }, { role: 'assistant', content: 'Which status?' }] });
+    expect(earlierUser.tasks).toHaveLength(1);
+  });
+
+  it('keeps the valid cards in a mixed list and says what it left out', async () => {
+    const result = await run(scripted({ reply: 'Two cards.', tasks: [move('SFT-275'), move('SFT-999')] }).planner, 'yes move them to Done', shown);
+    expect(result.tasks.map(t => t.parameters.issueKey)).toEqual(['SFT-275']);
+    expect(result.reply).toMatch(/left out an issue that you had not named and I had not shown you/);
+  });
+
+  it('applies the same rule to issue updates', async () => {
+    const ok = await run(scripted({ reply: 'Ready.', tasks: [upd('SFT-275')] }).planner, 'rename it', shown);
+    expect(ok.tasks).toHaveLength(1);
+    const { planner, contexts } = scripted({ reply: 'Ready.', tasks: [upd('SFT-500')] }, { reply: 'ok', tasks: [] });
+    const guessed = await run(planner, 'rename it', shown);
+    expect(guessed.tasks).toEqual([]);
+    expect(contexts).toHaveLength(2);
+  });
+
+  it('counts only what the user wrote or Kian showed, and ignores phone-like numbers', () => {
+    expect([...knownIssueKeys('call 555-1234 or version 2.0', base)].filter(k => k.startsWith('SFT-'))).toEqual(['SFT-2', 'SFT-0']);
+    expect(knownIssueKeys('hello', base).size).toBe(0);
+    expect(knownIssueKeys('x', { ...base, jira: { connected: false, defaultProject: null } }).size).toBe(0);
+  });
+
+  it('tells the model to look group requests up first and never to fill in keys from memory', () => {
+    expect(PLANNER_INSTRUCTIONS).toMatch(/Only change issues you can name from this conversation/);
+    expect(PLANNER_INSTRUCTIONS).toMatch(/first return a search lookup/);
   });
 });
