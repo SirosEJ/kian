@@ -19,12 +19,30 @@ export type PlanResult = { reply: string; tasks: TaskProposal[]; pending: 'keep'
 const NEGATION = /\b(?:do not|don't|dont|never|not to|no need to)\s+(?:send|email|use|write|contact|include)\b/i;
 const ISO_DATE_TIME = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(?::\d{2}(?:\.\d+)?)?(?:Z|[+-]\d{2}:\d{2})$/;
 export const CAPABILITIES = 'I can create or update calendar events, create or update Jira issues and send email, and I always show you each action to approve first.';
+// Guests are optional on a calendar event: a question about them is kept only when the user asked to invite someone.
+const GUEST_QUESTION = /\b(invite|invitee|invitation|guest|attendee)s?\b/i;
+const INVITE_REQUESTED = /\b(invite|invitation|attendee|guest)s?\b|@/i;
+const PROVIDER_OF = (action: string) => action.startsWith('calendar.') ? 'google_calendar' : action.startsWith('jira.') ? 'jira' : 'ionos';
+const PROVIDER_LABEL: Record<string, string> = { google_calendar: 'Google Calendar', jira: 'Jira Cloud', ionos: 'mailbox' };
 const NOTHING_TO_DO = `I could not find something I can do in that. ${CAPABILITIES} What would you like to do?`;
 const UNREADABLE = 'I could not understand that well enough to prepare anything safely. Could you say it again in other words?';
 
 function todayIn(timeZone: string, now: Date): string {
   try { return new Intl.DateTimeFormat('en-GB', { timeZone, weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(now); }
   catch { return new Intl.DateTimeFormat('en-GB', { timeZone: 'UTC', weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' }).format(now); }
+}
+
+/** Says in words, once, when a prepared action has no connected account (or several), so the user is not left to decode a card. */
+function withConnectionNotes(reply: string, tasks: TaskProposal[], thread: Thread): string {
+  if (/\bSettings\b/.test(reply)) return reply;
+  const notes: string[] = [];
+  for (const provider of new Set(tasks.map(t => PROVIDER_OF(t.action)))) {
+    const connected = thread.connections.filter(c => c.provider === provider).length;
+    const label = PROVIDER_LABEL[provider];
+    if (connected === 0) notes.push(`I don't see a connected ${label} yet. Connect it under Settings (open it from your profile at the top right) and I will use it.`);
+    else if (connected > 1) notes.push(`You have more than one ${label} connected, so choose the one to use with Edit on the card.`);
+  }
+  return notes.length ? `${reply} ${notes.join(' ')}`.trim() : reply;
 }
 
 export function createPlanner(model: PlanModel) {
@@ -62,6 +80,10 @@ export function createPlanner(model: PlanModel) {
         if ((create || item.parameters.start !== undefined) && bad(item.parameters.start)) note('Confirm the exact start date and time.');
         if ((create || item.parameters.end !== undefined) && bad(item.parameters.end)) note('Confirm the exact end date and time.');
       }
+      if (item.action.startsWith('calendar.')) {
+        const asked = [text, ...thread.history.filter(m => m.role === 'user').map(m => m.content)].some(said => INVITE_REQUESTED.test(said));
+        if (!asked) for (let i = uncertainties.length - 1; i >= 0; i--) if (GUEST_QUESTION.test(uncertainties[i])) uncertainties.splice(i, 1);
+      }
       const date = item.parameters.date;
       if (typeof date === 'string' && !/^\d{4}-\d{2}-\d{2}$/.test(date)) note('Confirm the exact calendar date');
       tasks.push({ ...item, id: randomUUID(), uncertainties, state: 'proposed' as const });
@@ -70,6 +92,8 @@ export function createPlanner(model: PlanModel) {
     if (dropped > 0) reply = `${reply} I could not prepare part of that request.`.trim();
     if (!reply) reply = tasks.length === 0 ? NOTHING_TO_DO : `I prepared ${tasks.length === 1 ? '1 action' : `${tasks.length} actions`} for you to review.`;
     else if (tasks.length === 0 && dropped > 0) reply = `${reply} ${CAPABILITIES}`;
+    // Without a conversation there is no connection information, so nothing can be said about it.
+    if (thread !== NO_THREAD) reply = withConnectionNotes(reply, tasks, thread);
     return { reply, tasks, pending };
   };
 }
@@ -79,6 +103,7 @@ export const PLANNER_INSTRUCTIONS = [
   'Calendar parameters: summary, start and end (ISO date-time with offset), timeZone, optional description; updates also require eventId. Jira parameters: summary, description, optional issueTypeId; updates require issueKey. Email parameters: to (array of exact email addresses), subject and body. Email destination is the exact recipient address for a single recipient.',
   'The reply says what you understood and prepared (for example "I prepared an email to Sam for you to review."), or asks ONE focused question when something important is missing or unclear, or explains in plain words what you cannot do and what you can: calendar events, Jira issues and email. Never say or imply that anything has been sent, created or done: you only prepare actions for the user to approve. Never put secrets or private data in the reply.',
   'You are given today\'s date and the time zone. Use them to resolve words like today, tomorrow or a weekday, but if the day or time is still ambiguous (for example a weekday said on that same weekday, or no time of day), ask instead of guessing.',
+  'A calendar event needs a title, a start and an end (or a duration). Guests are optional: never add attendees or ask who to invite unless the user asked to invite someone (for example "invite Sam" or an email address). A person named in the title, such as "Meeting with Sam", is not an invitation. Do not ask which calendar to use when the context lists exactly one Google Calendar connection or none (the app tells the user about a missing connection itself).',
   'Never invent an address or identifier. The instruction may be dictated speech: expect recognition errors, corrections and thinking aloud. A later correction overrides an earlier statement.',
   'Honour retractions and exclusions. If the user says not to use, send to, contact or include an address, person, project or calendar, it is excluded: never put it in a task. If the recipient is excluded, doubtful or unclear, leave the recipient empty (an empty array for to, destination null) and ask about it in uncertainties. If the user cancels or holds the whole request, return an empty tasks array.',
   'Write every uncertainty as a short question addressed to the user (for example "Which email address should I send this to?"). Do not describe the user in the third person and do not repeat the instruction. Missing details, low confidence and relative dates must appear in uncertainties.',

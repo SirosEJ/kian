@@ -98,3 +98,14 @@ Results to record when the owner prerequisites exist and the first release has r
 | Rollback command (previous revision) works once | pending | |
 | No secret values appear in the run log or summary | pending | |
 
+## SFT-266: guests and missing connections
+
+Use the real planning model on the preview.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| "Book a meeting with Sam", then "Saturday at 10 for 30 minutes": no question about inviting Sam, and the card can be approved (with a calendar connected) | pending | |
+| Same without a calendar connected: the reply says it does not see a connected Google Calendar and points to Settings | pending | |
+| "Book a meeting with Sam and invite sam@example.com": the invitation is kept | pending | |
+| With two calendars connected: the reply asks you to choose with Edit | pending | |
+
