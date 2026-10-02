@@ -101,6 +101,7 @@ jobs:
           BASE="https://${SERVICE}-${PROJECT_NUMBER}.${REGION}.run.app/"
           ENVS="GOOGLE_CLOUD_PROJECT=${{ vars.KIAN_FIREBASE_PROJECT_ID }}"
           SECRETS="OPENAI_API_KEY=estate-openai-api-key:latest,KIAN_ENCRYPTION_KEY=kian-staging-encryption-key:latest"
+          # Atlassian stores the callback without a trailing slash and compares it exactly, so Jira gets the address without one (Google keeps it).
           # A provider is switched on by its client ID variable; its secret must then exist (the deployer cannot look secrets up, so Cloud Run reports a missing one).
           if [ -n "$GOOGLE_CLIENT_ID" ]; then
             ENVS="$ENVS,GOOGLE_CLIENT_ID=$GOOGLE_CLIENT_ID,GOOGLE_REDIRECT_URI=$BASE"
@@ -109,7 +110,7 @@ jobs:
             echo "::warning::Google Calendar not configured (set the variable KIAN_GOOGLE_CLIENT_ID, and create the secret kian-google-client-secret first)"
           fi
           if [ -n "$JIRA_CLIENT_ID" ]; then
-            ENVS="$ENVS,JIRA_CLIENT_ID=$JIRA_CLIENT_ID,JIRA_REDIRECT_URI=$BASE"
+            ENVS="$ENVS,JIRA_CLIENT_ID=$JIRA_CLIENT_ID,JIRA_REDIRECT_URI=${BASE%/}"
             SECRETS="$SECRETS,JIRA_CLIENT_SECRET=kian-jira-client-secret:latest"
           else
             echo "::warning::Jira Cloud not configured (set the variable KIAN_JIRA_CLIENT_ID, and create the secret kian-jira-client-secret first)"

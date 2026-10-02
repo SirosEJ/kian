@@ -95,4 +95,13 @@ describe('production workflow', () => {
       expect(workflow, file).not.toMatch(/gcloud secrets (describe|list|versions)/);
     }
   });
+
+  it('sends Jira its callback without a trailing slash, because Atlassian stores it that way and compares exactly', () => {
+    for (const file of ['production.yml', 'staging.yml']) {
+      const workflow = readFileSync(fileURLToPath(new URL(`../../../../.github/workflows/${file}`, import.meta.url)), 'utf8');
+      expect(workflow, file).toMatch(/JIRA_REDIRECT_URI=\$\{(BASE|PUBLIC_URL)%\/\}/);
+      expect(workflow, file).toMatch(/GOOGLE_REDIRECT_URI=(\$BASE|\$\{PUBLIC_URL\})"/);
+    }
+  });
 });
+
