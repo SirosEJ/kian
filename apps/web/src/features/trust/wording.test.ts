@@ -14,6 +14,7 @@ describe('trust and activity wording', () => {
 
   it('explains why updates cannot be trusted', () => {
     expect(trustUnavailable('calendar.update')).toMatch(/always need your approval/);
+    expect(trustUnavailable('calendar.delete')).toMatch(/always need your approval/);
     expect(trustUnavailable('jira.update')).not.toBeNull();
     expect(trustUnavailable('email.send')).toBeNull();
   });

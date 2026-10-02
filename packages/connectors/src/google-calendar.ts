@@ -4,6 +4,8 @@ import type { Connector, Destination, ExecutionResult } from '@kian/contracts';
 export type GoogleConnection = { accessToken:string };
 export type CalendarCommand = { action:'calendar.create'|'calendar.update'; calendarId:string; summary:string; start:string; end:string; timeZone:string; eventId?:string; description?:string };
 
+export type CalendarDeleteCommand = { calendarId:string; eventId:string };
+
 export class GoogleCalendarConnector implements Connector<GoogleConnection,CalendarCommand> {
   constructor(private readonly request: typeof fetch = (input,init)=>fetch(input,{...init,signal:AbortSignal.timeout(30000)})) {}
   async connect(input:unknown): Promise<GoogleConnection> {
@@ -35,6 +37,15 @@ export class GoogleCalendarConnector implements Connector<GoogleConnection,Calen
     if (!response.ok) return {status:'failed',error:`Google Calendar returned ${response.status}`};
     const event = await response.json() as {id:string;htmlLink?:string};
     return {status:'succeeded',externalId:event.id,link:event.htmlLink};
+  }
+  /** Deletes one event (for a recurring event, the single occurrence the id names). Only runs for a task the user approved. */
+  async delete(connection:GoogleConnection,command:CalendarDeleteCommand): Promise<ExecutionResult> {
+    if (!command.calendarId || !command.eventId || /[\s/]/.test(command.eventId)) throw new Error('Event ID required');
+    const url=`https://www.googleapis.com/calendar/v3/calendars/${encodeURIComponent(command.calendarId)}/events/${encodeURIComponent(command.eventId)}?sendUpdates=none`;
+    const response=await this.request(url,{method:'DELETE',headers:{Authorization:`Bearer ${connection.accessToken}`}});
+    if (response.status === 404 || response.status === 410) return {status:'failed',error:'Google could not find that event, it may already be deleted. Nothing was changed.'};
+    if (!response.ok) return {status:'failed',error:`Google Calendar returned ${response.status}`};
+    return {status:'succeeded',externalId:command.eventId};
   }
   async disconnect(_connection:GoogleConnection) { /* The API clears stored credentials and revokes trust rules. */ }
 }

@@ -16,6 +16,11 @@ export function createProviderExecutor(db:Queryable,key:Buffer,google?:GoogleCon
       if(!google || connection.provider!=='google_calendar') return {status:'failed',error:'Google Calendar is not configured for this task.'};
       const adapter=new GoogleCalendarConnector(),token={accessToken:await getGoogleAccessToken(db,owner,proposal.connectionId,google)};
       if(!(await adapter.listDestinations(token)).some(c=>c.id===proposal.destination && c.canWrite)) return {status:'failed',error:'The approved calendar is no longer writable.'};
+      if(task.action==='calendar.delete') {
+        const eventId=typeof p.eventId==='string' ? p.eventId.trim():'';
+        if(!eventId) return {status:'failed',error:'Check which event should be deleted.'};
+        return adapter.delete(token,{calendarId:proposal.destination,eventId});
+      }
       const command={action:task.action,calendarId:proposal.destination,summary:p.summary,start:p.start,end:p.end,timeZone:p.timeZone,eventId:p.eventId,description:p.description} as CalendarCommand;
       try {adapter.validate(command);} catch {return {status:'failed',error:'Check the event title, exact start/end times and time zone.'};}
       return adapter.execute(token,command,idempotencyKey);

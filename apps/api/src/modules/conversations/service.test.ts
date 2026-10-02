@@ -3,7 +3,7 @@ import { PGlite } from '@electric-sql/pglite';
 import { readFile } from 'node:fs/promises';
 import type { TaskProposal } from '@kian/contracts';
 import { createApprovalService } from '../tasks/approval.js';
-import { ConversationError, createConversationService, LIMITS, shownNote, todayIn, type CalendarLookupPort, type JiraLookupPort, type Plan } from './service.js';
+import { ConversationError, createConversationService, LIMITS, shownNote, todayIn, type CalendarLookupPort, type EventCheck, type JiraLookupPort, type Plan } from './service.js';
 import type { Thread } from '../tasks/plan.js';
 
 async function setup(plan: Plan, jira?: JiraLookupPort, calendar?: CalendarLookupPort) {
@@ -420,6 +420,57 @@ describe('conversation with Kian', () => {
       const result = await service.converse('alice', input('what is open and what is on tomorrow'));
       expect(result.tables).toEqual([jiraTable, table]);
       expect((await db.query("SELECT event FROM activity WHERE event LIKE '%.lookup' ORDER BY event")).rows).toEqual([{ event: 'calendar.lookup' }, { event: 'jira.lookup' }]);
+      await db.close();
+    });
+  });
+
+  describe('deleting calendar events', () => {
+    const shownTable = { title: 'Agenda, Sat 3 Oct', columns: ['Day', 'Time', 'Event'], rows: [['Sat 3 Oct', '10:00–10:30', 'key on test']], links: [null], refs: ['abc123'] };
+    const del = (eventId: string): TaskProposal => ({ id: `d${++counter}`, action: 'calendar.delete', connectionId: null, destination: null, parameters: { eventId }, uncertainties: [], state: 'proposed' });
+    const found: EventCheck = { ok: true, calendarId: 'me@example.com', title: 'key on test', when: 'Sat 3 Oct 10:00–10:30', start: '2026-10-03T10:00:00+01:00', end: '2026-10-03T10:30:00+01:00', recurring: false };
+    const port = (check: CalendarLookupPort['checkEvent'], run: CalendarLookupPort['run'] = async () => ({ tables: [shownTable], digest: [{ type: 'calendar.agenda', count: 1 }], issuesRead: 1, notes: [] })): CalendarLookupPort => ({ info: async () => ({ connected: true }), run, checkEvent: check });
+    const twoStep = (eventId: string): Plan => async (_o, text, _l, _z, thread) => {
+      if (thread.lookupResults) return { reply: 'I found key on test tomorrow at 10:00. Shall I prepare to delete it?', tasks: [], pending: 'keep', lookups: [] };
+      if (/delete it|yes/i.test(text) && thread.history.length) return { reply: 'Ready for your approval.', tasks: [del(eventId)], pending: 'keep', lookups: [] };
+      return { reply: 'Looking.', tasks: [], pending: 'keep', lookups: [], calendarLookups: [{ type: 'calendar.agenda' as const, from: '2026-10-03' }] };
+    };
+
+    it('finds the event first (no card), then prepares a delete card built from Google\'s own record after "yes"', async () => {
+      const { db, service } = await setup(twoStep('abc123'), undefined, port(async () => found));
+      await db.query("INSERT INTO connections(id,owner_id,provider,display_name,secret_ciphertext,settings) VALUES ('g','alice','google_calendar','Google','\\x01','{\"destination\":\"me@example.com\"}')");
+      const first = await service.converse('alice', input('delete the test booking tomorrow'));
+      expect(first.tasks).toEqual([]);
+      expect(first.tables[0].refs).toEqual(['abc123']);
+      const second = await service.converse('alice', input('yes delete it', first.conversationId));
+      expect(second.tasks).toHaveLength(1);
+      expect(second.tasks[0]).toMatchObject({ action: 'calendar.delete', state: 'proposed', destination: 'me@example.com', uncertainties: [], parameters: { eventId: 'abc123', summary: 'key on test', when: 'Sat 3 Oct 10:00–10:30' } });
+      // Nothing is deleted without approval, and a delete is never started by a trust rule.
+      expect(await stateOf(db, second.tasks[0].id)).toBe('proposed');
+      await db.close();
+    });
+
+    it('remembers the event ids the user was shown, so the next message can name the exact event', () => {
+      expect(shownNote([shownTable])).toBe('\n[Shown earlier: Agenda, Sat 3 Oct: [abc123] Sat 3 Oct 10:00–10:30 "key on test"]');
+    });
+
+    it('blocks approval when the event cannot be found, is already cancelled, or Google Calendar is not connected', async () => {
+      for (const [check, expected] of [[async () => ({ ok: false as const, reason: 'I could not find that event in your calendar. Ask me to look it up again.' }), /could not find that event/], [async () => ({ ok: false as const, reason: 'That event is already cancelled.' }), /already cancelled/], [async () => null, /not connected/]] as const) {
+        const { db, service } = await setup(twoStep('abc123'), undefined, port(check));
+        const first = await service.converse('alice', input('delete the test booking'));
+        const second = await service.converse('alice', input('yes delete it', first.conversationId));
+        expect(second.tasks[0].uncertainties.join(' ')).toMatch(expected);
+        await db.close();
+      }
+    });
+
+    it('marks a repeating event as a single-occurrence delete, and flags the same event named twice', async () => {
+      const recurring = port(async () => ({ ...found, recurring: true }));
+      const twice: Plan = async (_o, _t, _l, _z, thread) => thread.lookupResults ? { reply: 'x', tasks: [], pending: 'keep', lookups: [] } : thread.history.length ? { reply: 'Ready.', tasks: [del('abc123'), del('abc123')], pending: 'keep', lookups: [] } : { reply: 'Looking.', tasks: [], pending: 'keep', lookups: [], calendarLookups: [{ type: 'calendar.agenda' as const, from: '2026-10-03' }] };
+      const { db, service } = await setup(twice, undefined, recurring);
+      const first = await service.converse('alice', input('delete it'));
+      const second = await service.converse('alice', input('yes', first.conversationId));
+      expect(second.tasks[0].parameters.scope).toMatch(/Only this occurrence/);
+      expect(second.tasks[1].uncertainties.join(' ')).toMatch(/more than once/);
       await db.close();
     });
   });

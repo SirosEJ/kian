@@ -53,9 +53,9 @@ describe('Google Calendar read-only reader', () => {
 
   it('only ever sends GET requests, so nothing can be written to the calendar through it', async () => {
     const methods: string[] = [];
-    const request = vi.fn(async (_u: string, init?: RequestInit) => { methods.push(init?.method ?? 'GET'); return Response.json({ items: [] }); });
+    const request = vi.fn(async (_u: string, init?: RequestInit) => { methods.push(init?.method ?? 'GET'); return Response.json({ items: [], id: 'e1', start: { dateTime: '2026-10-03T10:00:00+01:00' }, end: { dateTime: '2026-10-03T10:30:00+01:00' } }); });
     const reader = new GoogleCalendarReader(request as typeof fetch);
-    await reader.events(connection, 'primary', 'a', 'b'); await reader.details(connection, 'primary', 'a', 'b', 'q'); await reader.calendars(connection);
+    await reader.events(connection, 'primary', 'a', 'b'); await reader.details(connection, 'primary', 'a', 'b', 'q'); await reader.calendars(connection); await reader.event(connection, 'primary', 'e1');
     expect(new Set(methods)).toEqual(new Set(['GET']));
   });
 
@@ -66,5 +66,14 @@ describe('Google Calendar read-only reader', () => {
       expect(error.code).toBe(code);
       expect(error.message).not.toContain('token');
     }
+  });
+
+  it('reads one event by id, and says whether it is part of a repeating series', async () => {
+    const urls: string[] = [];
+    const request = vi.fn(async (u: string) => { urls.push(u); return Response.json({ id: 'e1', summary: 'key on test', start: { dateTime: '2026-10-03T10:00:00+01:00' }, end: { dateTime: '2026-10-03T10:30:00+01:00' }, recurringEventId: 'series' }); });
+    const event = await new GoogleCalendarReader(request as typeof fetch).event(connection, 'me@x.com', 'e1');
+    expect(event).toMatchObject({ id: 'e1', title: 'key on test', recurring: true });
+    expect(urls[0]).toContain('/calendars/me%40x.com/events/e1');
+    expect(urls[0]).not.toContain('description');
   });
 });

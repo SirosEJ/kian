@@ -1,7 +1,7 @@
 import { z } from 'zod';
 export type { Connector, Destination, ExecutionResult } from './connections.js';
 
-export const ActionSchema = z.enum(['calendar.create','calendar.update','jira.create','jira.update','jira.transition','email.send']);
+export const ActionSchema = z.enum(['calendar.create','calendar.update','calendar.delete','jira.create','jira.update','jira.transition','email.send']);
 export const ModelProposalSchema = z.object({
   action: ActionSchema,
   connectionId: z.string().nullable(),

@@ -26,4 +26,17 @@ describe('Google Calendar connector',()=>{
     await connector.execute({accessToken:'token'},{...command,action:'calendar.update',eventId:'existing'},'update-task');
     expect(mock.mock.calls[2][1]?.method).toBe('PATCH');
   });
+
+  it('deletes one event only through DELETE on that exact event, and reports a missing event as nothing changed',async()=>{
+    const calls:{url:string;method?:string}[]=[];
+    const ok=new GoogleCalendarConnector((async (url:string,init?:RequestInit)=>{calls.push({url,method:init?.method});return new Response(null,{status:204});}) as typeof fetch);
+    expect(await ok.delete({accessToken:'t'},{calendarId:'me@example.com',eventId:'abc123'})).toEqual({status:'succeeded',externalId:'abc123'});
+    expect(calls).toEqual([{url:'https://www.googleapis.com/calendar/v3/calendars/me%40example.com/events/abc123?sendUpdates=none',method:'DELETE'}]);
+    const gone=new GoogleCalendarConnector((async ()=>new Response(null,{status:410})) as typeof fetch);
+    expect(await gone.delete({accessToken:'t'},{calendarId:'primary',eventId:'x'})).toMatchObject({status:'failed',error:expect.stringContaining('Nothing was changed')});
+    const denied=new GoogleCalendarConnector((async ()=>new Response(null,{status:403})) as typeof fetch);
+    expect(await denied.delete({accessToken:'t'},{calendarId:'primary',eventId:'x'})).toEqual({status:'failed',error:'Google Calendar returned 403'});
+    await expect(ok.delete({accessToken:'t'},{calendarId:'primary',eventId:''})).rejects.toThrow('Event ID required');
+    await expect(ok.delete({accessToken:'t'},{calendarId:'primary',eventId:'a/b'})).rejects.toThrow('Event ID required');
+  });
 });

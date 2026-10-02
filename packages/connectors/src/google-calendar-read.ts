@@ -73,6 +73,12 @@ export class GoogleCalendarReader {
     return { events: events.slice(0, max), truncated: Boolean(token) };
   }
 
+  /** One event by id (the exact one a delete would remove), without description or attendee addresses. */
+  async event(connection: GoogleConnection, calendarId: string, eventId: string): Promise<CalendarEventRow & { recurring: boolean }> {
+    const item = await this.get(connection, `calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}`, { fields: 'id,status,summary,start,end,location,htmlLink,transparency,recurringEventId,attendees(self,responseStatus)' });
+    return { ...toRow(item), recurring: typeof item.recurringEventId === 'string' };
+  }
+
   /** Events matching words, with their description (cut short) and attendee names and addresses: used only when the user asks about specific events. */
   async details(connection: GoogleConnection, calendarId: string, timeMin: string, timeMax: string, q: string, max = 5): Promise<CalendarEventDetail[]> {
     const body = await this.get(connection, `calendars/${encodeURIComponent(calendarId)}/events`, { singleEvents: 'true', orderBy: 'startTime', timeMin, timeMax, maxResults: String(max), q, fields: DETAIL_FIELDS });
