@@ -1,5 +1,6 @@
 import type { TaskProposal } from '@kian/contracts';
 import type { CalendarLookupPort } from '../conversations/service.js';
+import { short, withReview } from '../tasks/review.js';
 
 /**
  * A delete card is built from Google's own record of the event, never from the model's words: the title, time and calendar the
@@ -25,7 +26,7 @@ export async function prepareDeletes(port: CalendarLookupPort | undefined, owner
       const result = port?.checkEvent ? await port.checkEvent(ownerId, eventId, timeZone) : null;
       if (!result) out[index] = { ...task, uncertainties: [...task.uncertainties, 'Google Calendar is not connected. Connect it under Settings first.'] };
       else if (!result.ok) out[index] = { ...task, uncertainties: [...task.uncertainties, result.reason] };
-      else out[index] = { ...task, destination: result.calendarId, parameters: { eventId, summary: result.title, when: result.when, start: result.start, end: result.end, ...(result.recurring ? { scope: 'Only this occurrence is deleted, not the whole series.' } : {}) } };
+      else out[index] = { ...task, destination: result.calendarId, parameters: withReview({ eventId, summary: result.title, when: result.when, start: result.start, end: result.end, ...(result.recurring ? { scope: 'Only this occurrence is deleted, not the whole series.' } : {}) }, { matched: `The event "${short(result.title, 60)}" in your calendar, found by the id from an agenda Kian showed you. Google confirmed it still exists.`, changes: [{ field: 'Event', before: `${short(result.title, 60)}, ${result.when}`, after: 'Deleted' }] }) };
     }));
   }
   return out;

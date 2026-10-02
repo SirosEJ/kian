@@ -224,3 +224,19 @@ Use the real planning model and the owner's Jira and Google Calendar on staging.
 | Another account never sees or uses these entries | pending (automated tests cover the isolation) | |
 | Phone width: the Settings card is readable | pending | |
 
+## SFT-294: approval cards show what will change
+
+Use the real planning model on staging with Google Calendar and Jira connected. Use a throwaway event and issue.
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| "What is on tomorrow?" then "move it to 4pm": the card has a "What will change" table (Now / After) with the time before and after, "How Kian matched this", and Safety checks | pending | |
+| Rename the event ("call it X"): the table shows the old and new title only | pending | |
+| "change 269 to In Progress": the table shows Status before and after and the match line names the issue and project | pending | |
+| Change an issue's title ("rename SFT-NNN to ..."): the table shows the current title next to the new one | pending | |
+| A change that would not alter anything: the card says so and cannot be approved | pending | |
+| A delete card: the table shows the event and "Deleted"; the safety list says it cannot be brought back | pending | |
+| Approve each: Google and Jira show exactly what the card said | pending | |
+| Edit a card and save: the old table is dropped (no stale before/after) and the safety checks stay | pending | |
+| Phone width: the table scrolls inside its box, the page does not scroll sideways | pending | |
+

@@ -162,3 +162,6 @@ article .actions{margin-top:var(--space-4)}
 .result-note{margin:var(--space-2) 0 0;font-size:var(--font-size-sm)}
 .assistant-name{margin:0;color:var(--text-muted);font-size:var(--font-size-sm);font-weight:700}
 .assistant-text{margin:var(--space-1) 0 0;white-space:pre-wrap;overflow-wrap:anywhere}
+.review{margin-top:var(--space-3)}
+.review summary{cursor:pointer;color:var(--text-muted)}
+.review td:nth-child(2){color:var(--text-muted)}

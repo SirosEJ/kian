@@ -1,5 +1,6 @@
 import { JiraReadError, type JiraConnection, type JiraIssueBrief, type JiraTransitionOption } from '@kian/connectors';
 import type { TaskProposal } from '@kian/contracts';
+import { short, withReview } from '../tasks/review.js';
 
 export type TransitionReader = {
   brief(connection: JiraConnection, key: string): Promise<JiraIssueBrief>;
@@ -59,7 +60,7 @@ export async function prepareTransitions(check: TransitionChecker | undefined, o
       const result = check ? await check(ownerId, key, to) : null;
       if (!result) out[index] = { ...task, uncertainties: [...task.uncertainties, 'Jira is not connected. Connect it under Settings first.'] };
       else if (!result.ok) out[index] = { ...task, uncertainties: [...task.uncertainties, result.reason] };
-      else out[index] = { ...task, destination: result.projectKey, parameters: { ...task.parameters, issueKey: key, toStatus: result.to, fromStatus: result.from, issueTitle: result.title } };
+      else out[index] = { ...task, destination: result.projectKey, parameters: withReview({ ...task.parameters, issueKey: key, toStatus: result.to, fromStatus: result.from, issueTitle: result.title }, { matched: `${key} "${short(result.title, 60)}" exists in Jira project ${result.projectKey} (the project chosen in Settings), and Jira allows this move right now.`, changes: [{ field: 'Status', before: result.from, after: result.to }] }) };
     }));
   }
   return out;

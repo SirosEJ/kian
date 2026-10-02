@@ -8,6 +8,8 @@ import type { CalendarContext } from '../calendar-insights/insights.js';
 import type { LookupOutcome, ResultTable } from '../jira-insights/insights.js';
 import { learnTerms, type LearnedTerm, type MemoryStore } from '../memory/store.js';
 import { prepareDeletes } from '../calendar-insights/deletes.js';
+import { prepareUpdates } from '../calendar-insights/updates.js';
+import { prepareJiraUpdates, type IssueChecker } from '../jira-insights/updates.js';
 import { prepareTransitions, type TransitionChecker } from '../jira-insights/transitions.js';
 import { saveProposalsIn } from '../tasks/store.js';
 import { transaction } from '../transaction.js';
@@ -28,6 +30,8 @@ export type JiraLookupPort = {
   run(ownerId: string, lookups: Lookup[], today: string): Promise<LookupOutcome | null>;
   /** Asks Jira whether a proposed status change is possible now (read-only). Null when no Jira site is connected. */
   checkTransition: TransitionChecker;
+  /** Looks up the issue a change would touch (exists, in the selected project). Null when Jira is not connected. */
+  checkIssue?: IssueChecker;
 };
 export type ConversationSummary = { id: string; createdAt: string; title: string };
 export type Converse = (ownerId: string, input: { text: string; conversationId?: string; locale: string; timeZone: string }) => Promise<{ conversationId: string; reply: string; tasks: TaskProposal[]; tables: ResultTable[] }>;
@@ -134,6 +138,9 @@ export function createConversationService(db: Queryable, plan: Plan, jira?: Jira
     // Status changes are checked with Jira before they can be approved: current status, title, project, and whether Jira offers the move.
     if (result.tasks.some(t => t.action === 'jira.transition')) result = { ...result, tasks: await prepareTransitions(jira?.checkTransition, ownerId, result.tasks, jiraInfo.defaultProject) };
 
+    // Changes to existing issues and events are checked first: the card shows what they are now next to what they will become.
+    if (result.tasks.some(t => t.action === 'jira.update')) result = { ...result, tasks: await prepareJiraUpdates(jira?.checkIssue, ownerId, result.tasks, jiraInfo.defaultProject) };
+    if (result.tasks.some(t => t.action === 'calendar.update')) result = { ...result, tasks: await prepareUpdates(calendar, ownerId, result.tasks, timeZone || 'UTC') };
     // Deletes are checked with Google first: the card shows the real title, time and calendar of the event it would remove.
     if (result.tasks.some(t => t.action === 'calendar.delete')) result = { ...result, tasks: await prepareDeletes(calendar, ownerId, result.tasks, timeZone || 'UTC') };
 

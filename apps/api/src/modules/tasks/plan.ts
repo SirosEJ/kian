@@ -135,11 +135,12 @@ export function createPlanner(model: PlanModel) {
         if (!/^[A-Z][A-Z0-9_]*-\d{1,7}$/.test(key)) note('Which issue should I move? I need its key, like SFT-123.');
         if (typeof item.parameters.toStatus !== 'string' || !item.parameters.toStatus.trim()) note('Which status should it move to?');
       }
-      if (item.action === 'calendar.delete') {
-        // Only an event Kian has shown the user (its id is in the conversation) can be deleted: the model cannot invent or guess one.
+      if (item.action === 'calendar.delete' || item.action === 'calendar.update') {
+        // Only an event Kian has shown the user (its id is in the conversation) can be changed or deleted: the model cannot invent or guess one.
+        const verb = item.action === 'calendar.delete' ? 'delete' : 'change';
         const eventId = typeof item.parameters.eventId === 'string' ? item.parameters.eventId.trim() : '';
-        if (!eventId) note('Which event should I delete? Ask me to look it up first.');
-        else if (!thread.history.some(m => m.role === 'assistant' && m.content.includes(`[${eventId}]`))) note('I can only delete an event I have shown you. Ask me to look it up first.');
+        if (!eventId) note(`Which event should I ${verb}? Ask me to look it up first.`);
+        else if (!thread.history.some(m => m.role === 'assistant' && m.content.includes(`[${eventId}]`))) note(`I can only ${verb} an event I have shown you. Ask me to look it up first.`);
       }
       if (item.action.startsWith('calendar.') && item.action !== 'calendar.delete') {
         // A calendar write needs exact times with an offset; a missing or relative time is a question, not a guess.

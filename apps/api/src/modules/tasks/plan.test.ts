@@ -71,9 +71,13 @@ describe('instruction planning', () => {
 
   it('checks the times of a calendar update only when it changes them', async () => {
     const update = (parameters: Record<string, unknown>) => item('calendar.update', 'primary', { eventId: 'e1', ...parameters });
-    const { tasks } = await plan({ reply: '', tasks: [update({ summary: 'Renamed' }), update({ start: 'tomorrow' })] });
+    const shownEvent: Thread = { history: [{ role: 'assistant', content: 'Here.\n[Shown earlier: Agenda: [e1] Sat 3 Oct 10:00–10:30 "x"]' }], pending: [], connections: [] };
+    const { tasks } = await createPlanner(async () => ({ reply: '', tasks: [update({ summary: 'Renamed' }), update({ start: 'tomorrow' })] }))('alice', 'rename it', 'en-GB', 'Europe/London', shownEvent);
     expect(tasks[0].uncertainties).toEqual([]);
     expect(tasks[1].uncertainties).toEqual(['Confirm the exact start date and time.']);
+    // An event Kian has not shown cannot be changed: the id is not the model's to invent.
+    const unseen = await plan({ reply: '', tasks: [update({ summary: 'Renamed' })] });
+    expect(unseen.tasks[0].uncertainties.join(' ')).toMatch(/only change an event I have shown you/);
   });
 
   it('gives the model today\'s date in the user\'s time zone so weekdays can be resolved', async () => {

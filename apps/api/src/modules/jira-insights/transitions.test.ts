@@ -60,6 +60,8 @@ describe('preparing a batch of status changes', () => {
   it('fills in the current status, title, exact status name and project on each card', async () => {
     const [task] = await prepareTransitions(ok, 'alice', [move('sft-269', 'in progress')], 'SFT');
     expect(task).toMatchObject({ destination: 'SFT', uncertainties: [], parameters: { issueKey: 'SFT-269', toStatus: 'In Progress', fromStatus: 'To Do', issueTitle: 'Title SFT-269' } });
+    // The card also says how it was matched and what changes, from Jira's own answer.
+    expect(task.parameters._review).toEqual({ matched: 'SFT-269 "Title SFT-269" exists in Jira project SFT (the project chosen in Settings), and Jira allows this move right now.', changes: [{ field: 'Status', before: 'To Do', after: 'In Progress' }] });
   });
 
   it('turns a bare number into a key in the chosen project', async () => {
