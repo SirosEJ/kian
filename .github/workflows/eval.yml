@@ -1,0 +1,39 @@
+name: Evaluate Kian commands
+# Asks the real planning model the verified set of commands (apps/api/src/eval/cases.ts) and reports how many it handles correctly.
+# Advisory: it never blocks a deploy. It needs the repository secret OPENAI_API_KEY (an owner action); without it the run says so and stops.
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: ["Deploy Staging"]
+    types: [completed]
+permissions:
+  contents: read
+jobs:
+  evaluate:
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.25.0
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter './packages/**' build
+      - run: pnpm --filter @kian/api build
+      - name: Evaluate against the real model
+        working-directory: apps/api
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: node dist/eval/cli.js --runs 2 --out eval-report.json
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: eval-report
+          path: apps/api/eval-report.json
+          if-no-files-found: ignore

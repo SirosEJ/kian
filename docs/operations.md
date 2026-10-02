@@ -63,6 +63,15 @@ Migrations only move forward and are not undone by a rollback. A release that ch
 
 Production never contains test credentials. Launch gates that are not part of the deploy: the live journey (SFT-232) and the privacy, terms and retention decisions in `account-lifecycle.md` before public sign-up.
 
+## Command evaluation (does Kian understand what people ask?)
+
+`apps/api/src/eval/cases.ts` is the verified set of commands: the owner's real phrases from staging plus the canonical requests (Jira and calendar questions, status changes, creating events, issues and emails, and honesty cases such as unsupported requests, a service that is not connected, and instructions hidden in event titles). Each case says whether a good answer looks something up, prepares actions for approval, or only replies, and has an example answer that must pass and, for real failures, a bad answer that must fail.
+
+* On every CI run (`pnpm test`): the cases are checked against the real validator, so the set can never drift from the code. No model is called.
+* Against the real model: run `pnpm --filter @kian/api eval:live` (needs `OPENAI_API_KEY` in your shell, about 30 questions per run) or the GitHub workflow **Evaluate Kian commands** (manual, and after each successful staging deploy). It prints pass rate, clarification rate (questions asked where it should have acted), actions prepared that nobody asked for, and precision and recall per outcome, and compares with `apps/api/eval/baseline.json` when that file exists. The run turns red below 85% or if any unrequested action is prepared. It is advisory and never blocks a deploy.
+* Owner prerequisite, once: add the repository secret `OPENAI_API_KEY` (GitHub, Settings, Secrets and variables, Actions). Without it the workflow skips the model run and says so.
+* After a planner or prompt change, run it before and after and keep the better numbers as the new baseline (`--out eval/baseline.json`).
+
 ## Story preview cleanup
 
 Each story preview creates a Cloud Run service and a Neon database branch, both named `kian-sft-<N>`. The Neon project has a branch limit; when it is reached, preview deploys fail with Neon's own message ("branches limit exceeded"). `.github/workflows/preview-cleanup.yml` removes both automatically when a pull request from an `SFT-<N>-...` branch closes, merged or not (pull requests from this repository only). It uses `scripts/cleanup-story-preview.sh`, which only builds the name `kian-sft-<digits>`, so it cannot touch `kian-staging`, production, or the Neon default branch (which it also refuses explicitly), and running it twice is harmless.

@@ -7,7 +7,8 @@
     "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "build": "tsc -p tsconfig.build.json",
-    "start": "node dist/server.js"
+    "start": "node dist/server.js",
+    "eval:live": "pnpm build && node dist/eval/cli.js"
   },
   "dependencies": {
     "@fastify/static": "10.1.5",
