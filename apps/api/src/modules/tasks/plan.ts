@@ -77,6 +77,10 @@ const ASSIGNED_TO_YOU = /\(searched:[^)]*\bassigned to you\b[^)]*\)/i;
 const MORE_THAN_MAX = ` That is the most I prepare at once (${MAX_TASKS}). Approve these, then say "continue" and I will look up the rest.`;
 // "how many ..." about issues or events is a fact that has to come from a lookup in the same turn, never from memory.
 const COUNT_QUESTION = /\bhow many\b[^?.!]*\b(stories|story|issues?|epics?|bugs?|tickets?|events?|meetings?|them|these|those|of)\b/i;
+// A reply that promises to look something up ("I'll check your calendar") or announces results ("Here is what's on your calendar") without
+// returning the lookup is empty talk: the answer is sent back once for the lookup it promised.
+const PROMISES_LOOKUP = /\b(?:I(?:'ll| will| am going to|'m going to)|let me|allow me to)\s+(?:check|look|search|find|pull up|see|fetch|get|review)\b|^\s*here(?:'s| is| are)\s+(?:what|the|your|a list)\b/i;
+const PROMISE_REFUSAL = 'I said I would look that up but did not actually do it, so there is no answer yet. Please ask again.';
 const COUNT_REFUSAL = 'I did not look that up, so I will not give you a number. Ask it as a Jira or calendar question, for example "how many stories are in Deployed?".';
 const UNREADABLE = 'I could not understand that well enough to prepare anything safely. Could you say it again in other words?';
 
@@ -142,6 +146,10 @@ export function createPlanner(model: PlanModel) {
     // A count of Jira issues or events must come from a lookup: a number answered from memory is made up.
     if (!thread.lookupResults && COUNT_QUESTION.test(text) && (thread.jira?.connected || thread.calendar?.connected) && !(Array.isArray(answer?.tasks) && answer.tasks.length > 0)) {
       return { reply: COUNT_REFUSAL, tasks: [], pending: 'keep', retry: 'The user asked "how many". A number may only come from a lookup: return a "search" (or a report, or a calendar lookup) and no tasks, and the app will give you the real count in the next pass. Never answer a number from earlier messages.', failure: COUNT_REFUSAL };
+    }
+    // Promised a lookup but returned none: one retry for the lookup, otherwise an honest note instead of the empty promise.
+    if (!thread.lookupResults && (thread.jira?.connected || thread.calendar?.connected) && PROMISES_LOOKUP.test(typeof answer?.reply === 'string' ? answer.reply : '') && !(Array.isArray(answer?.tasks) && answer.tasks.length > 0)) {
+      return { reply: PROMISE_REFUSAL, tasks: [], pending: 'keep', retry: 'Your reply says you will check or show something, but you returned no lookup. If the user asked about Jira or the calendar, return the "lookups" (and no tasks) now; the app will give you the results in the next pass. If there is nothing to look up, answer in plain words without promising anything.', failure: PROMISE_REFUSAL };
     }
     // Model output is a proposal. Anything malformed becomes a polite question, never an error and never an action.
     // Unreadable output also leaves earlier proposals untouched.

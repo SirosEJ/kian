@@ -410,7 +410,8 @@ describe('reliable commands in the planner', () => {
     const claim = scripted({ reply: 'I am preparing to delete the event titled test.', tasks: [] });
     expect((await run(claim.planner)).reply).toMatch(/not prepared anything yet/);
     const listed = scripted({ reply: 'Here are the 20 stories assigned to you.', tasks: [] });
-    expect((await run(listed.planner)).reply).toMatch(/not prepared anything yet/);
+    // With Jira or Google connected this is a promise of results with no lookup (sent back once); either way no invented list reaches the user.
+    expect((await run(listed.planner)).reply).toMatch(/not prepared anything yet|did not actually do it/);
     const ask = scripted({ reply: 'I am preparing to delete the event at 10:00. Is that the right one?', tasks: [] });
     expect((await run(ask.planner)).reply).toMatch(/Is that the right one\?$/);
     const real = scripted({ reply: 'I am preparing to delete it.', tasks: [del('abc123')] });
@@ -635,6 +636,42 @@ describe('lookups the model fills with empty fields, and narrowing a list', () =
     expect((await run({ reply: 'Looking.', lookups: [search] }, 'only the deployed ones', notMine)).lookups?.[0]).not.toHaveProperty('assignee');
     const already = await run({ reply: 'Looking.', lookups: [{ ...search, assignee: 'unassigned' }] }, 'only the deployed ones', shownMine);
     expect(already.lookups?.[0]).toMatchObject({ assignee: 'unassigned' });
+  });
+});
+
+describe('a promise to look something up that comes with no lookup', () => {
+  const t: Thread = { history: [], pending: [], connections: [], jira: { connected: true, defaultProject: 'SFT' }, calendar: { connected: true } };
+  const scripted = (...answers: unknown[]) => { const contexts: PlanContext[] = []; let n = 0; return { planner: createPlanner(async (_t, _l, _z, c) => { contexts.push(c); return answers[Math.min(n++, answers.length - 1)]; }), contexts }; };
+  const run = (planner: ReturnType<typeof createPlanner>, text: string, thread: Thread = t) => planner('alice', text, 'en-GB', 'Europe/London', thread);
+  const agenda = { type: 'calendar.agenda', from: '2026-10-05' };
+
+  it('sends the answer back once for the lookup it promised, and uses the second answer', async () => {
+    for (const promise of ["I'll check your calendar for tomorrow.", 'Let me look that up for you.', "Here is what's on your calendar for tomorrow.", 'I will search Jira for those.']) {
+      const { planner, contexts } = scripted({ reply: promise, tasks: [] }, { reply: 'Looking.', lookups: [agenda] });
+      const result = await run(planner, 'what is on tomorrow');
+      expect(contexts, promise).toHaveLength(2);
+      expect(contexts[1].repair).toMatch(/returned no lookup/);
+      expect(result.calendarLookups, promise).toEqual([agenda]);
+    }
+  });
+
+  it('says plainly that there is no answer yet when the retry still promises without a lookup', async () => {
+    const result = await run(scripted({ reply: "I'll check your calendar for tomorrow.", tasks: [] }).planner, 'what is on tomorrow');
+    expect(result.reply).toMatch(/did not actually do it/);
+    expect(result.reply).not.toMatch(/I'll check/);
+  });
+
+  it('leaves normal answers, questions, other tasks, the second pass and unconnected users alone', async () => {
+    const plain = scripted({ reply: 'I can help with Jira and your calendar.', tasks: [] });
+    expect((await run(plain.planner, 'what can you do')).reply).toBe('I can help with Jira and your calendar.');
+    expect(plain.contexts).toHaveLength(1);
+    const second = scripted({ reply: "Here is what's on your calendar: one meeting." });
+    expect((await run(second.planner, 'what is on', { ...t, lookupResults: [{ type: 'calendar.agenda' }] })).reply).toBe("Here is what's on your calendar: one meeting.");
+    const off = scripted({ reply: "I'll check your calendar.", tasks: [] });
+    expect((await run(off.planner, 'what is on', { history: [], pending: [], connections: [] })).reply).toBe("I'll check your calendar.");
+    expect(off.contexts).toHaveLength(1);
+    const withCard = scripted({ reply: "Here is the card I prepared.", tasks: [item('email.send', 'sam@example.com', { to: ['sam@example.com'], subject: 'x', body: 'y' })] });
+    expect((await run(withCard.planner, 'email sam@example.com')).tasks).toHaveLength(1);
   });
 });
 
