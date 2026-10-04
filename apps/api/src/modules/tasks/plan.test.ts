@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildChatMessages, CAPABILITIES, cleanLookups, createPlanner, knownIssueKeys, PLANNER_INSTRUCTIONS, planningModels, type PlanContext, type Thread } from './plan.js';
+import { buildChatMessages, CAPABILITIES, cleanLookups, createPlanner, knownIssueKeys, upcomingDays, PLANNER_INSTRUCTIONS, planningModels, type PlanContext, type Thread } from './plan.js';
 
 const item = (action: string, destination: string | null = null, parameters: Record<string, unknown> = {}, uncertainties: string[] = []) => ({ action, connectionId: null, destination, parameters, uncertainties });
 const email = (to: string[], uncertainties: string[] = []) => item('email.send', to.length === 1 ? to[0] : null, { to, subject: 'Hi', body: 'Hello' }, uncertainties);
@@ -705,6 +705,26 @@ describe('lookups that cannot be used', () => {
     const off = scripted({ reply: 'Not connected.', tasks: [], lookups: [{ type: 'calendar.free', date: 'Friday' }] });
     expect((await run(off.planner, 'am I free', { history: [], pending: [], connections: [] })).reply).toBe('Not connected.');
     expect(off.contexts).toHaveLength(1);
+  });
+});
+
+describe('weekday dates for the model', () => {
+  it('lists the next 14 days with weekday names and exact dates in the user\'s time zone', () => {
+    const days = upcomingDays(new Date('2026-10-04T10:00:00Z'), 'Europe/London');
+    expect(days).toHaveLength(14);
+    expect(days[0]).toEqual({ weekday: 'Sunday', date: '2026-10-04' });
+    expect(days[5]).toEqual({ weekday: 'Friday', date: '2026-10-09' });
+    expect(days[13]).toEqual({ weekday: 'Saturday', date: '2026-10-17' });
+  });
+  it('uses the user\'s own date near midnight, and falls back to UTC for an unknown zone', () => {
+    expect(upcomingDays(new Date('2026-10-04T23:30:00Z'), 'Europe/Istanbul')[0]).toEqual({ weekday: 'Monday', date: '2026-10-05' });
+    expect(upcomingDays(new Date('2026-10-04T23:30:00Z'), 'Not/AZone')[0].date).toBe('2026-10-04');
+  });
+  it('puts the days into what the model sees, and tells it to copy dates from them', () => {
+    const last = JSON.parse(buildChatMessages('am I free Friday', 'en', 'Europe/London', { nowIso: '2026-10-04T10:00:00Z', today: 'Sunday, 4 October 2026', thread: { history: [], pending: [], connections: [] } }).at(-1)!.content);
+    expect(last.days[5]).toEqual({ weekday: 'Friday', date: '2026-10-09' });
+    expect(PLANNER_INSTRUCTIONS).toMatch(/copy the date from that list/);
+    expect(JSON.parse(buildChatMessages('x', 'en', 'UTC', { nowIso: '', today: '', thread: { history: [], pending: [], connections: [] } }).at(-1)!.content).days).toEqual([]);
   });
 });
 
