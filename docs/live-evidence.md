@@ -297,6 +297,6 @@ Measured with the workflow "Evaluate Kian commands" against the real planning mo
 | Run | Passed | Clarification questions on doable requests | Unrequested actions | Notes |
 | --- | --- | --- | --- | --- |
 | Baseline, main `b2dcfda` (apps/api/eval/baseline.json) | 57 of 66 (86%) | 4% | 0 | Calendar lookups often missing, refinement dropped a filter, one rate-limit failure |
-| This branch, after the fixes (apps/api/eval/after-sft-328.json) | see the file | | 0 | |
+| This branch, final run after the fixes (apps/api/eval/after-sft-328.json) | 66 of 66 (100%) | 0% | 0 | Model answers vary between runs: the runs while fixing scored 88%, 94%, 98%, 98%, 97%, then 100%. Expect 95% or better, not always 100% |
 
 Live check on staging: ask "what is on my calendar tomorrow?", "am I free on Friday afternoon?", "delete the test booking in my calendar tomorrow" and "show me only the deployed ones" after listing your own stories: each should work first time.
