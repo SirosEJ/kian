@@ -646,7 +646,7 @@ describe('a promise to look something up that comes with no lookup', () => {
   const agenda = { type: 'calendar.agenda', from: '2026-10-05' };
 
   it('sends the answer back once for the lookup it promised, and uses the second answer', async () => {
-    for (const promise of ["I'll check your calendar for tomorrow.", 'Let me look that up for you.', "Here is what's on your calendar for tomorrow.", 'I will search Jira for those.']) {
+    for (const promise of ["I'll check your calendar for tomorrow.", 'Let me look that up for you.', "Here is what's on your calendar for tomorrow.", 'I will search Jira for those.', 'I found the onboarding epic with the key SFT-267.', "I've checked your calendar and you are free."]) {
       const { planner, contexts } = scripted({ reply: promise, tasks: [] }, { reply: 'Looking.', lookups: [agenda] });
       const result = await run(planner, 'what is on tomorrow');
       expect(contexts, promise).toHaveLength(2);

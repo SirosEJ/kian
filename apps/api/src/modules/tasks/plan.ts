@@ -79,7 +79,7 @@ const MORE_THAN_MAX = ` That is the most I prepare at once (${MAX_TASKS}). Appro
 const COUNT_QUESTION = /\bhow many\b[^?.!]*\b(stories|story|issues?|epics?|bugs?|tickets?|events?|meetings?|them|these|those|of)\b/i;
 // A reply that promises to look something up ("I'll check your calendar") or announces results ("Here is what's on your calendar") without
 // returning the lookup is empty talk: the answer is sent back once for the lookup it promised.
-const PROMISES_LOOKUP = /\b(?:I(?:'ll| will| am going to|'m going to)|let me|allow me to)\s+(?:check|look|search|find|pull up|see|fetch|get|review)\b|^\s*here(?:'s| is| are)\s+(?:what|the|your|a list)\b/i;
+const PROMISES_LOOKUP = /\b(?:I(?:'ll| will| am going to|'m going to)|let me|allow me to)\s+(?:check|look|search|find|pull up|see|fetch|get|review)\b|^\s*here(?:'s| is| are)\s+(?:what|the|your|a list)\b|^\s*I(?:'ve| have)?\s+(?:found|checked|looked up|searched)\b/i;
 const PROMISE_REFUSAL = 'I said I would look that up but did not actually do it, so there is no answer yet. Please ask again.';
 const COUNT_REFUSAL = 'I did not look that up, so I will not give you a number. Ask it as a Jira or calendar question, for example "how many stories are in Deployed?".';
 const UNREADABLE = 'I could not understand that well enough to prepare anything safely. Could you say it again in other words?';
