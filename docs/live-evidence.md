@@ -277,3 +277,15 @@ Repeat the owner's sequence on staging in a new conversation, with more than 20 
 | Approve all, then "continue": Kian searches again and prepares cards for the remaining ones only | pending | |
 | At the end, "show me the deployed ones" finds none left | pending | |
 
+## SFT-327: Kian introduces himself and shows his photos
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| "who are you Kian?" answers "I am a cute kid, only 8 years old, and my dad created this app. My dad's name is Siros. Do you want to see my photo?" | pending | |
+| "yes" right after shows the eight photos under the reply; they open larger when tapped | pending | |
+| "show me your foto" in a new conversation shows them directly | pending | |
+| Reopen the conversation from History: the photos are still there | pending | |
+| Signed out, the photo address (/persona/photos/kian-1) is refused | pending | |
+| "who created them?" after a Jira list still answers about the issues, not about Kian | pending | |
+| Phone width: the gallery fits (two photos per row) without sideways scrolling | pending | |
+

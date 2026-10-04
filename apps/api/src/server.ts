@@ -9,6 +9,7 @@ import { registerTaskRoutes, type TaskRoutes } from './modules/tasks/routes.js';
 import { createConversationService } from './modules/conversations/service.js';
 import { createJiraLookupPort } from './modules/jira-insights/port.js';
 import { createMemoryStore } from './modules/memory/store.js';
+import { registerPersonaRoutes } from './modules/persona/routes.js';
 import { registerMemoryRoutes } from './modules/memory/routes.js';
 import { createCalendarLookupPort } from './modules/calendar-insights/port.js';
 import { saveProposals } from './modules/tasks/store.js';
@@ -71,6 +72,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
       dictation: async ownerId => { const { prompt, corrections } = await createMemoryStore(pool).dictation(ownerId); return { prompt, corrections }; },
     });
   }
+  registerPersonaRoutes(app,authenticate);
   if (pool) registerAccountRoutes(app,pool,authenticate);
   if (pool) registerMemoryRoutes(app,createMemoryStore(pool),authenticate);
   if (pool) registerDecisionRoutes(app, pool, authenticate,runner ? (owner,id)=>runner.run(owner,id):undefined);

@@ -6,6 +6,7 @@ import type { Lookup } from '../jira-insights/lookups.js';
 import type { CalendarLookup } from '../calendar-insights/lookups.js';
 import type { CalendarContext } from '../calendar-insights/insights.js';
 import type { LookupOutcome, ResultTable } from '../jira-insights/insights.js';
+import { isPhotos, personaReply, type PhotoId } from '../persona/persona.js';
 import { learnTerms, type LearnedTerm, type MemoryStore } from '../memory/store.js';
 import { prepareDeletes } from '../calendar-insights/deletes.js';
 import { prepareUpdates } from '../calendar-insights/updates.js';
@@ -23,7 +24,7 @@ export class ConversationError extends Error {
 
 export type Plan = (ownerId: string, text: string, locale: string, timeZone: string, thread: Thread) => Promise<PlanResult>;
 export type TaskView = { id: string; action: string; state: string; version: number; connectionId: string | null; destination: string | null; parameters: Record<string, unknown>; uncertainties: string[] };
-export type StoredMessage = { id: string; role: 'user' | 'assistant'; content: string; createdAt: string; tasks: TaskView[]; tables: ResultTable[] };
+export type StoredMessage = { id: string; role: 'user' | 'assistant'; content: string; createdAt: string; tasks: TaskView[]; tables: ResultTable[]; /** Ids of Kian's own photos shown with this message (served by /persona/photos/:id). */ photos: PhotoId[] };
 /** What the conversation needs from the Jira lookups: whether they are possible, and to run them. `run` returns null when no Jira site is connected. */
 export type JiraLookupPort = {
   info(ownerId: string): Promise<{ connected: boolean; defaultProject: string | null }>;
@@ -34,7 +35,7 @@ export type JiraLookupPort = {
   checkIssue?: IssueChecker;
 };
 export type ConversationSummary = { id: string; createdAt: string; title: string };
-export type Converse = (ownerId: string, input: { text: string; conversationId?: string; locale: string; timeZone: string }) => Promise<{ conversationId: string; reply: string; tasks: TaskProposal[]; tables: ResultTable[] }>;
+export type Converse = (ownerId: string, input: { text: string; conversationId?: string; locale: string; timeZone: string }) => Promise<{ conversationId: string; reply: string; tasks: TaskProposal[]; tables: ResultTable[]; photos?: PhotoId[] }>;
 
 /**
  * One conversation per thread, always scoped to its owner. Kian answers every message; proposals the user has not
@@ -55,6 +56,10 @@ export function todayIn(timeZone: string, now = new Date()): string {
   catch { return now.toISOString().slice(0, 10); }
 }
 /** "[Shown earlier: Issues: SFT-1, SFT-2]": the keys from the first column of each table, enough to refer back to them. */
+/** Attachments hold result tables and, for Kian's own answers, photo ids: keep them apart. */
+const tablesOf = (attachments: unknown): ResultTable[] => (Array.isArray(attachments) ? attachments.filter((a): a is ResultTable => Boolean(a) && Array.isArray((a as ResultTable).rows)) : []);
+const photosOf = (attachments: unknown): PhotoId[] => (Array.isArray(attachments) ? attachments.filter(isPhotos).flatMap(a => a.ids) : []);
+
 export function shownNote(tables: ResultTable[] | null | undefined): string {
   const parts = (tables ?? []).flatMap(t => {
     const searched = /Searched: ([^.]*)\./.exec(t.note ?? '')?.[1];
@@ -93,9 +98,20 @@ export function createConversationService(db: Queryable, plan: Plan, jira?: Jira
     const total = Number((await db.query('SELECT count(*) AS n FROM messages WHERE conversation_id=$1', [id])).rows[0].n);
     if (total >= LIMITS.messagesPerConversation) throw new ConversationError(409, 'This conversation is very long. Start a new conversation to continue.');
 
+    // Kian talking about himself is answered with fixed text (and his photos), without the model and without touching Jira or Google.
+    const previous = (await db.query("SELECT content FROM messages WHERE conversation_id=$1 AND role='assistant' ORDER BY created_at DESC, id DESC LIMIT 1", [id])).rows[0] as { content: string } | undefined;
+    const persona = personaReply(text, previous?.content);
+    if (persona) {
+      return transaction(db, async client => {
+        await client.query(`INSERT INTO messages (id,conversation_id,owner_id,role,content,task_ids,attachments,created_at) VALUES ($1,$2,$3,'user',$4,'[]','[]',clock_timestamp()),($5,$2,$3,'assistant',$6,'[]',$7,clock_timestamp() + interval '1 millisecond')`, [randomUUID(), id, ownerId, text, randomUUID(), persona.reply, JSON.stringify(persona.photos.length ? [{ kind: 'photos', ids: persona.photos }] : [])]);
+        await client.query('UPDATE conversations SET updated_at=now() WHERE id=$1', [id]);
+        return { conversationId: id, reply: persona.reply, tasks: [], tables: [], photos: persona.photos };
+      });
+    }
+
     // A reply that showed Jira tables remembers which issues they held, so a follow-up ("who created them?") can look those issues up again.
     const history = (await db.query('SELECT role,content,attachments FROM messages WHERE conversation_id=$1 ORDER BY created_at DESC, id DESC LIMIT $2', [id, LIMITS.historyWindow])).rows.reverse()
-      .map((m: { role: 'user' | 'assistant'; content: string; attachments: ResultTable[] }) => ({ role: m.role, content: m.role === 'assistant' ? `${m.content}${shownNote(m.attachments)}` : m.content })) as Thread['history'];
+      .map((m: { role: 'user' | 'assistant'; content: string; attachments: ResultTable[] }) => ({ role: m.role, content: m.role === 'assistant' ? `${m.content}${shownNote(tablesOf(m.attachments))}` : m.content })) as Thread['history'];
     const pendingRows = (await db.query(`SELECT t.id,t.action,t.parameters FROM tasks t JOIN instructions i ON i.id=t.instruction_id WHERE t.owner_id=$1 AND i.conversation_id=$2 AND t.state='proposed' ORDER BY t.created_at`, [ownerId, id])).rows as { id: string; action: string; parameters: { destination?: string | null; fields?: Record<string, unknown>; uncertainties?: string[] } }[];
     const pending: PendingSummary[] = pendingRows.map(r => ({ action: r.action, destination: r.parameters.destination ?? null, fields: r.parameters.fields ?? {}, uncertainties: r.parameters.uncertainties ?? [] }));
     // Names and types only: credentials and settings never reach the model.
@@ -173,7 +189,7 @@ export function createConversationService(db: Queryable, plan: Plan, jira?: Jira
     // Current state of each task, so a card shows approved, rejected or replaced as it is now.
     const found = ids.length ? (await db.query('SELECT id,action,state,parameters,version FROM tasks WHERE owner_id=$1 AND id = ANY($2::text[])', [ownerId, ids])).rows : [];
     const byId = new Map<string, TaskView>(found.map(t => [t.id as string, { id: t.id, action: t.action, state: t.state, version: t.version, connectionId: t.parameters.connectionId ?? null, destination: t.parameters.destination ?? null, parameters: t.parameters.fields ?? {}, uncertainties: t.parameters.uncertainties ?? [] }]));
-    return { conversationId, messages: rows.map(m => ({ id: m.id, role: m.role, content: m.content, createdAt: new Date(m.created_at).toISOString(), tasks: (m.task_ids as string[]).map(id => byId.get(id)).filter((t): t is TaskView => !!t), tables: (m.attachments ?? []) as ResultTable[] })) };
+    return { conversationId, messages: rows.map(m => ({ id: m.id, role: m.role, content: m.content, createdAt: new Date(m.created_at).toISOString(), tasks: (m.task_ids as string[]).map(id => byId.get(id)).filter((t): t is TaskView => !!t), tables: tablesOf(m.attachments), photos: photosOf(m.attachments) })) };
   }
 
   async function latest(ownerId: string): Promise<{ conversationId: string | null; messages: StoredMessage[] }> {

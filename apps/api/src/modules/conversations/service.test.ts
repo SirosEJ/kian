@@ -6,6 +6,7 @@ import { createApprovalService } from '../tasks/approval.js';
 import { ConversationError, createConversationService, LIMITS, shownNote, todayIn, type CalendarLookupPort, type EventCheck, type JiraLookupPort, type Plan } from './service.js';
 import type { Thread } from '../tasks/plan.js';
 import { createMemoryStore } from '../memory/store.js';
+import { PERSONA_INTRO, PERSONA_PHOTOS, PHOTO_IDS } from '../persona/persona.js';
 
 async function setup(plan: Plan, jira?: JiraLookupPort, calendar?: CalendarLookupPort, withMemory = false) {
   const db = new PGlite();
@@ -545,6 +546,55 @@ describe('conversation with Kian', () => {
       expect(result.tasks).toEqual([]);
       expect((await db.query('SELECT kind FROM memory_terms')).rows).toEqual([{ kind: 'epic' }]);
       expect((await db.query("SELECT count(*)::int AS n FROM tasks")).rows[0]).toEqual({ n: 0 });
+      await db.close();
+    });
+  });
+
+  describe('Kian talking about himself', () => {
+    const neverPlans: { calls: number; plan: Plan } = { calls: 0, plan: async () => { neverPlans.calls++; return { reply: 'planned', tasks: [], pending: 'keep' }; } };
+
+    it('answers "who are you" with the fixed introduction, without the model, tasks or tables', async () => {
+      neverPlans.calls = 0;
+      const { db, service } = await setup(neverPlans.plan);
+      const result = await service.converse('alice', input('who are you Kian?'));
+      expect(result).toMatchObject({ reply: PERSONA_INTRO, tasks: [], tables: [], photos: [] });
+      expect(neverPlans.calls).toBe(0);
+      expect((await db.query('SELECT count(*)::int AS n FROM tasks')).rows[0]).toEqual({ n: 0 });
+      await db.close();
+    });
+
+    it('shows the photos after "yes" to the offer, and keeps them when the conversation is reopened', async () => {
+      neverPlans.calls = 0;
+      const { db, service } = await setup(neverPlans.plan);
+      const first = await service.converse('alice', input('who are you?'));
+      const second = await service.converse('alice', input('yes', first.conversationId));
+      expect(second).toMatchObject({ reply: PERSONA_PHOTOS, photos: [...PHOTO_IDS] });
+      const reopened = await service.get('alice', first.conversationId);
+      expect(reopened.messages.map(m => [m.role, m.content, m.photos.length])).toEqual([['user', 'who are you?', 0], ['assistant', PERSONA_INTRO, 0], ['user', 'yes', 0], ['assistant', PERSONA_PHOTOS, 8]]);
+      expect(reopened.messages[3].tables).toEqual([]);
+      expect(neverPlans.calls).toBe(0);
+      await db.close();
+    });
+
+    it('asks for the photo directly, and a plain "yes" with no offer still goes to the planner', async () => {
+      neverPlans.calls = 0;
+      const { db, service } = await setup(neverPlans.plan);
+      expect((await service.converse('alice', input('show me your foto'))).photos).toHaveLength(8);
+      const other = await service.converse('bob', input('yes'));
+      expect(other.reply).toBe('planned');
+      expect(neverPlans.calls).toBe(1);
+      await db.close();
+    });
+
+    it('keeps the planner\'s history intact, and ordinary questions are not caught', async () => {
+      const seen: Thread[] = [];
+      const plan: Plan = async (_o, _t, _l, _z, thread) => { seen.push(thread); return { reply: 'ok', tasks: [], pending: 'keep' }; };
+      const { db, service } = await setup(plan);
+      const first = await service.converse('alice', input('show me your photo'));
+      await service.converse('alice', input('who created them?', first.conversationId));
+      expect(seen).toHaveLength(1);
+      expect(seen[0].history.map(m => m.role)).toEqual(['user', 'assistant']);
+      expect(seen[0].history[1].content).toBe(PERSONA_PHOTOS);
       await db.close();
     });
   });
