@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildChatMessages, CAPABILITIES, createPlanner, knownIssueKeys, PLANNER_INSTRUCTIONS, planningModels, type PlanContext, type Thread } from './plan.js';
+import { buildChatMessages, CAPABILITIES, cleanLookups, createPlanner, knownIssueKeys, PLANNER_INSTRUCTIONS, planningModels, type PlanContext, type Thread } from './plan.js';
 
 const item = (action: string, destination: string | null = null, parameters: Record<string, unknown> = {}, uncertainties: string[] = []) => ({ action, connectionId: null, destination, parameters, uncertainties });
 const email = (to: string[], uncertainties: string[] = []) => item('email.send', to.length === 1 ? to[0] : null, { to, subject: 'Hi', body: 'Hello' }, uncertainties);
@@ -598,6 +598,43 @@ describe('group requests and counts in the planner', () => {
     expect(PLANNER_INSTRUCTIONS).toMatch(/keep every filter in that list's "\(searched: \.\.\.\)" note/);
     expect(PLANNER_INSTRUCTIONS).toMatch(/"continue"/);
     expect(PLANNER_INSTRUCTIONS).toMatch(/Counts \("how many"\) come only from a lookup/);
+  });
+});
+
+describe('lookups the model fills with empty fields, and narrowing a list', () => {
+  const both: Thread = { history: [], pending: [], connections: [], jira: { connected: true, defaultProject: 'SFT' }, calendar: { connected: true } };
+  const run = (answer: unknown, text: string, thread: Thread = both) => createPlanner(async () => answer)('alice', text, 'en-GB', 'Europe/London', thread);
+
+  it('removes null, empty and unused fields so a good lookup is not thrown away', () => {
+    expect(cleanLookups([{ type: 'calendar.agenda', from: '2026-10-05', to: null, calendar: '', text: undefined, details: null }, { type: 'search', statuses: [], project: 'SFT' }, 'x', null])).toEqual([{ type: 'calendar.agenda', from: '2026-10-05' }, { type: 'search', project: 'SFT' }, 'x', null]);
+    expect(cleanLookups('nope')).toBe('nope');
+    expect(cleanLookups(undefined)).toBeUndefined();
+  });
+
+  it('accepts a calendar lookup that the model filled with nulls, and a Jira search with empty lists', async () => {
+    const cal = await run({ reply: 'Looking.', lookups: [{ type: 'calendar.agenda', from: '2026-10-05', to: null, calendar: null, text: null, details: null }] }, 'what is on tomorrow');
+    expect(cal.calendarLookups).toEqual([{ type: 'calendar.agenda', from: '2026-10-05' }]);
+    const jira = await run({ reply: 'Looking.', lookups: [{ type: 'search', project: 'SFT', statuses: ['Deployed'], issueTypes: [], assignee: null, text: '' }] }, 'deployed ones');
+    expect(jira.lookups).toEqual([{ type: 'search', project: 'SFT', statuses: ['Deployed'] }]);
+  });
+
+  const shownMine: Thread = { ...both, history: [{ role: 'user', content: 'show my stories' }, { role: 'assistant', content: 'Here.\n[Shown earlier: Issues (searched: project SFT, type Story, assigned to you): SFT-1, SFT-2]' }] };
+  const search = { type: 'search', project: 'SFT', issueTypes: ['Story'], statuses: ['Deployed'] };
+
+  it('keeps "assigned to you" when a list that had it is narrowed', async () => {
+    const result = await run({ reply: 'Looking.', lookups: [search] }, 'show me only the deployed ones', shownMine);
+    expect(result.lookups).toEqual([{ ...search, assignee: 'me' }]);
+    expect((await run({ reply: 'Looking.', lookups: [search] }, 'just those in deployed', shownMine)).lookups?.[0]).toMatchObject({ assignee: 'me' });
+  });
+
+  it('does not add it when the user widens the question, names someone else, or the list was not "assigned to you"', async () => {
+    expect((await run({ reply: 'Looking.', lookups: [search] }, 'show me only the deployed ones for everyone', shownMine)).lookups?.[0]).not.toHaveProperty('assignee');
+    expect((await run({ reply: 'Looking.', lookups: [search] }, 'now only the unassigned ones', shownMine)).lookups?.[0]).not.toHaveProperty('assignee');
+    expect((await run({ reply: 'Looking.', lookups: [search] }, 'show the deployed ones', shownMine)).lookups?.[0]).not.toHaveProperty('assignee');
+    const notMine: Thread = { ...both, history: [{ role: 'assistant', content: 'Here.\n[Shown earlier: Issues (searched: project SFT, type Story): SFT-1]' }] };
+    expect((await run({ reply: 'Looking.', lookups: [search] }, 'only the deployed ones', notMine)).lookups?.[0]).not.toHaveProperty('assignee');
+    const already = await run({ reply: 'Looking.', lookups: [{ ...search, assignee: 'unassigned' }] }, 'only the deployed ones', shownMine);
+    expect(already.lookups?.[0]).toMatchObject({ assignee: 'unassigned' });
   });
 });
 

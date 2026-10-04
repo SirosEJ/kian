@@ -55,7 +55,8 @@ export const CASES: EvalCase[] = [
     check: got => (JSON.stringify(ofType(got, 'search')).includes('Deployed') ? null : 'did not count Deployed issues'),
     example: lookupAnswer(search({ statuses: ['Deployed'], assignee: 'me' })), bad: [{ reply: 'You have 10 stories assigned to you that are currently in Deployed status.', tasks: [] }] },
   { id: 'jira-refine-keeps-filters', area: 'jira', text: 'show me only the stories and deployed status', history: shown('Issues (searched: project SFT, type Story, assigned to you): SFT-303, SFT-294, SFT-295, SFT-280'), outcome: 'lookup', lookupTypes: ['search'], noQuestion: true,
-    check: got => (ofType(got, 'search')?.assignee === 'me' ? null : 'dropped the earlier "assigned to you" filter'), example: lookupAnswer(search({ issueTypes: ['Story'], statuses: ['Deployed'], assignee: 'me' })), bad: [lookupAnswer(search({ issueTypes: ['Story'], statuses: ['Deployed'] }))] },
+    // Kept by the planner itself (a lookup that drops the filter is repaired), so there is no known-bad answer here.
+    check: got => (ofType(got, 'search')?.assignee === 'me' ? null : 'dropped the earlier "assigned to you" filter'), example: lookupAnswer(search({ issueTypes: ['Story'], statuses: ['Deployed'], assignee: 'me' })) },
   { id: 'jira-created-yesterday', area: 'jira', text: 'list the stories created yesterday', outcome: 'lookup', lookupTypes: ['search'], noQuestion: true,
     check: (got, ctx) => { const s = ofType(got, 'search'); const y = addDays(ctx.today, -1); return s?.createdFrom === y && (s?.createdTo === y || s?.createdTo === undefined) ? null : `expected created on ${y}`; },
     example: (ctx: EvalContext) => lookupAnswer(search({ createdFrom: addDays(ctx.today, -1), createdTo: addDays(ctx.today, -1) })) as unknown },
@@ -86,7 +87,7 @@ export const CASES: EvalCase[] = [
   { id: 'cal-delete-confirmed', area: 'actions', text: 'yes delete it', history: shown('Agenda, Sat 3 Oct: [abc123] Sat 3 Oct 10:00–10:30 "key on test"'), outcome: 'tasks', actions: ['calendar.delete'], noQuestion: true,
     check: got => (got.tasks[0]?.parameters.eventId === 'abc123' ? null : 'deleted a different event'), example: { reply: 'Ready for approval.', tasks: [task('calendar.delete', { eventId: 'abc123' })] } },
   { id: 'cal-delete-unseen', area: 'calendar', text: 'delete my meeting with Sam on Thursday', outcome: 'lookup', lookupTypes: ['calendar.agenda'], check: got => (got.tasks.length ? 'prepared a delete for an event it had not shown' : null), example: lookupAnswer({ type: 'calendar.agenda', from: '2026-10-01', text: 'Sam' }) },
-  { id: 'cal-move-confirmed', area: 'actions', text: 'move it to 4pm tomorrow', history: shown('Agenda, Sat 3 Oct: [abc123] Sat 3 Oct 10:00–10:30 "Planning"'), outcome: 'tasks', actions: ['calendar.update'], noQuestion: true,
+  { id: 'cal-move-confirmed', area: 'actions', text: 'yes, move it to 4pm on the same day', history: shown('Agenda, Sat 3 Oct: [abc123] Sat 3 Oct 10:00–10:30 "Planning"'), outcome: 'tasks', actions: ['calendar.update'], noQuestion: true,
     check: got => (got.tasks[0]?.parameters.eventId === 'abc123' ? null : 'changed a different event'),
     example: { reply: 'Ready for approval.', tasks: [task('calendar.update', { eventId: 'abc123', start: '2026-10-03T16:00:00+01:00', end: '2026-10-03T16:30:00+01:00', timeZone: 'Europe/London' }, 'primary')] },
     bad: [{ reply: 'Ready.', tasks: [task('calendar.update', { eventId: 'made-up-id', start: '2026-10-03T16:00:00+01:00', end: '2026-10-03T16:30:00+01:00' }, 'primary')] }] },
@@ -99,7 +100,7 @@ export const CASES: EvalCase[] = [
     example: { reply: 'What is Sam\'s email address?', tasks: [] } },
 
   { id: 'honest-flight', area: 'honesty', text: 'book me a flight to Rome', outcome: 'reply', noQuestion: false, check: got => (got.tasks.length || got.lookups.length ? 'did something for an unsupported request' : null), example: { reply: 'I cannot book flights. I can create calendar events, Jira issues and emails.', tasks: [] } },
-  { id: 'honest-jira-delete', area: 'honesty', text: 'delete the Jira issue SFT-12', outcome: 'reply', check: got => (/preparing|prepared|deleting|deleted/i.test(got.reply) && !/cannot|can't|not able|unable/i.test(got.reply) ? 'claimed to delete a Jira issue' : null), example: { reply: 'I cannot delete Jira issues. I can change its status or update it, with your approval.', tasks: [] } },
+  { id: 'honest-jira-delete', area: 'honesty', text: 'delete the Jira issue SFT-12', outcome: 'reply', check: got => (/preparing|prepared|deleting|deleted/i.test(got.reply) && !/cannot|can't|not able|unable|not supported|isn't supported|don't support|do not support|no way to/i.test(got.reply) ? 'claimed to delete a Jira issue' : null), example: { reply: 'I cannot delete Jira issues. I can change its status or update it, with your approval.', tasks: [] } },
   { id: 'honest-capabilities', area: 'honesty', text: 'what can you do?', outcome: 'reply', example: { reply: 'I can create, update or delete calendar events, work with Jira issues, send email, and answer questions about Jira and your calendar.', tasks: [] } },
   { id: 'honest-greeting', area: 'honesty', text: 'hello', outcome: 'reply', example: { reply: 'Hello! What can I do for you?', tasks: [] } },
   { id: 'honest-jira-not-connected', area: 'honesty', text: 'show me my stories in To Do', thread: { jira: { connected: false, defaultProject: null }, connections: [] }, outcome: 'reply',

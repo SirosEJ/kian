@@ -60,6 +60,20 @@ export function knownIssueKeys(text: string, thread: Thread): Set<string> {
   return keys;
 }
 const MAX_TASKS = 20;
+/**
+ * A model often writes every field of a lookup and fills the ones it does not need with null or an empty value. Those fields mean
+ * "not asked for", so they are removed before the lookup is validated; otherwise a perfectly good lookup is rejected.
+ */
+export function cleanLookups(raw: unknown): unknown {
+  if (!Array.isArray(raw)) return raw;
+  return raw.map(item => {
+    if (!item || typeof item !== 'object' || Array.isArray(item)) return item;
+    return Object.fromEntries(Object.entries(item as Record<string, unknown>).filter(([, v]) => v !== null && v !== undefined && v !== '' && !(Array.isArray(v) && v.length === 0)));
+  });
+}
+const REFINES = /\b(only|just|of them|of those|those|them|again|among them|from those)\b/i;
+const WIDENS = /\b(everyone|everybody|anyone|all users|unassigned|not assigned|nobody|the team|team'?s|whole project|all stories in)\b/i;
+const ASSIGNED_TO_YOU = /\(searched:[^)]*\bassigned to you\b[^)]*\)/i;
 const MORE_THAN_MAX = ` That is the most I prepare at once (${MAX_TASKS}). Approve these, then say "continue" and I will look up the rest.`;
 // "how many ..." about issues or events is a fact that has to come from a lookup in the same turn, never from memory.
 const COUNT_QUESTION = /\bhow many\b[^?.!]*\b(stories|story|issues?|epics?|bugs?|tickets?|events?|meetings?|them|these|those|of)\b/i;
@@ -112,12 +126,16 @@ export function createPlanner(model: PlanModel) {
       const text = answer && typeof answer.reply === 'string' ? answer.reply.trim().slice(0, 2500) : '';
       return { reply: text || 'I looked it up. The results are below.', tasks: [], pending: 'keep', lookups: [], calendarLookups: [] };
     }
-    const asked = answer ? parseLookups(answer.lookups) : { lookups: [], dropped: 0 };
-    const askedCalendar = answer ? parseCalendarLookups(answer.lookups) : [];
+    const cleaned = answer ? cleanLookups(answer.lookups) : undefined;
+    const asked = answer ? parseLookups(cleaned) : { lookups: [], dropped: 0 };
+    const askedCalendar = answer ? parseCalendarLookups(cleaned) : [];
     const jiraOk = asked.lookups.length > 0 && Boolean(thread.jira?.connected), calendarOk = askedCalendar.length > 0 && Boolean(thread.calendar?.connected);
     if (jiraOk || calendarOk) {
       // A lookup turn proposes nothing: whatever else the model returned is ignored. At most three lookups in all, Jira first.
-      const jiraLookups = jiraOk ? asked.lookups.slice(0, 3) : [];
+      let jiraLookups = jiraOk ? asked.lookups.slice(0, 3) : [];
+      // Narrowing a list that was "assigned to you" keeps that filter unless the user widens the question again.
+      const lastShown = [...thread.history].reverse().find(m => m.role === 'assistant')?.content ?? '';
+      if (REFINES.test(text) && !WIDENS.test(text) && ASSIGNED_TO_YOU.test(lastShown)) jiraLookups = jiraLookups.map(l => (l.type === 'search' && !l.assignee ? { ...l, assignee: 'me' as const } : l));
       const calendarLookups = calendarOk ? askedCalendar.slice(0, 3 - jiraLookups.length) : [];
       return { reply: typeof answer?.reply === 'string' ? answer.reply.trim().slice(0, 1000) : '', tasks: [], pending: 'keep', lookups: jiraLookups, calendarLookups, learn };
     }
