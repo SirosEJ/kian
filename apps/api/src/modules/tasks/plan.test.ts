@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildChatMessages, CAPABILITIES, createPlanner, knownIssueKeys, PLANNER_INSTRUCTIONS, planningModels, type PlanContext, type Thread } from './plan.js';
+import { buildChatMessages, CAPABILITIES, cleanLookups, createPlanner, knownIssueKeys, upcomingDays, PLANNER_INSTRUCTIONS, planningModels, type PlanContext, type Thread } from './plan.js';
 
 const item = (action: string, destination: string | null = null, parameters: Record<string, unknown> = {}, uncertainties: string[] = []) => ({ action, connectionId: null, destination, parameters, uncertainties });
 const email = (to: string[], uncertainties: string[] = []) => item('email.send', to.length === 1 ? to[0] : null, { to, subject: 'Hi', body: 'Hello' }, uncertainties);
@@ -410,7 +410,8 @@ describe('reliable commands in the planner', () => {
     const claim = scripted({ reply: 'I am preparing to delete the event titled test.', tasks: [] });
     expect((await run(claim.planner)).reply).toMatch(/not prepared anything yet/);
     const listed = scripted({ reply: 'Here are the 20 stories assigned to you.', tasks: [] });
-    expect((await run(listed.planner)).reply).toMatch(/not prepared anything yet/);
+    // With Jira or Google connected this is a promise of results with no lookup (sent back once); either way no invented list reaches the user.
+    expect((await run(listed.planner)).reply).toMatch(/not prepared anything yet|did not actually do it/);
     const ask = scripted({ reply: 'I am preparing to delete the event at 10:00. Is that the right one?', tasks: [] });
     expect((await run(ask.planner)).reply).toMatch(/Is that the right one\?$/);
     const real = scripted({ reply: 'I am preparing to delete it.', tasks: [del('abc123')] });
@@ -598,6 +599,132 @@ describe('group requests and counts in the planner', () => {
     expect(PLANNER_INSTRUCTIONS).toMatch(/keep every filter in that list's "\(searched: \.\.\.\)" note/);
     expect(PLANNER_INSTRUCTIONS).toMatch(/"continue"/);
     expect(PLANNER_INSTRUCTIONS).toMatch(/Counts \("how many"\) come only from a lookup/);
+  });
+});
+
+describe('lookups the model fills with empty fields, and narrowing a list', () => {
+  const both: Thread = { history: [], pending: [], connections: [], jira: { connected: true, defaultProject: 'SFT' }, calendar: { connected: true } };
+  const run = (answer: unknown, text: string, thread: Thread = both) => createPlanner(async () => answer)('alice', text, 'en-GB', 'Europe/London', thread);
+
+  it('removes null, empty and unused fields so a good lookup is not thrown away', () => {
+    expect(cleanLookups([{ type: 'calendar.agenda', from: '2026-10-05', to: null, calendar: '', text: undefined, details: null }, { type: 'search', statuses: [], project: 'SFT' }, 'x', null])).toEqual([{ type: 'calendar.agenda', from: '2026-10-05' }, { type: 'search', project: 'SFT' }, 'x', null]);
+    expect(cleanLookups('nope')).toBe('nope');
+    expect(cleanLookups(undefined)).toBeUndefined();
+  });
+
+  it('accepts a calendar lookup that the model filled with nulls, and a Jira search with empty lists', async () => {
+    const cal = await run({ reply: 'Looking.', lookups: [{ type: 'calendar.agenda', from: '2026-10-05', to: null, calendar: null, text: null, details: null }] }, 'what is on tomorrow');
+    expect(cal.calendarLookups).toEqual([{ type: 'calendar.agenda', from: '2026-10-05' }]);
+    const jira = await run({ reply: 'Looking.', lookups: [{ type: 'search', project: 'SFT', statuses: ['Deployed'], issueTypes: [], assignee: null, text: '' }] }, 'deployed ones');
+    expect(jira.lookups).toEqual([{ type: 'search', project: 'SFT', statuses: ['Deployed'] }]);
+  });
+
+  const shownMine: Thread = { ...both, history: [{ role: 'user', content: 'show my stories' }, { role: 'assistant', content: 'Here.\n[Shown earlier: Issues (searched: project SFT, type Story, assigned to you): SFT-1, SFT-2]' }] };
+  const search = { type: 'search', project: 'SFT', issueTypes: ['Story'], statuses: ['Deployed'] };
+
+  it('keeps "assigned to you" when a list that had it is narrowed', async () => {
+    const result = await run({ reply: 'Looking.', lookups: [search] }, 'show me only the deployed ones', shownMine);
+    expect(result.lookups).toEqual([{ ...search, assignee: 'me' }]);
+    expect((await run({ reply: 'Looking.', lookups: [search] }, 'just those in deployed', shownMine)).lookups?.[0]).toMatchObject({ assignee: 'me' });
+  });
+
+  it('does not add it when the user widens the question, names someone else, or the list was not "assigned to you"', async () => {
+    expect((await run({ reply: 'Looking.', lookups: [search] }, 'show me only the deployed ones for everyone', shownMine)).lookups?.[0]).not.toHaveProperty('assignee');
+    expect((await run({ reply: 'Looking.', lookups: [search] }, 'now only the unassigned ones', shownMine)).lookups?.[0]).not.toHaveProperty('assignee');
+    expect((await run({ reply: 'Looking.', lookups: [search] }, 'show the deployed ones', shownMine)).lookups?.[0]).not.toHaveProperty('assignee');
+    const notMine: Thread = { ...both, history: [{ role: 'assistant', content: 'Here.\n[Shown earlier: Issues (searched: project SFT, type Story): SFT-1]' }] };
+    expect((await run({ reply: 'Looking.', lookups: [search] }, 'only the deployed ones', notMine)).lookups?.[0]).not.toHaveProperty('assignee');
+    const already = await run({ reply: 'Looking.', lookups: [{ ...search, assignee: 'unassigned' }] }, 'only the deployed ones', shownMine);
+    expect(already.lookups?.[0]).toMatchObject({ assignee: 'unassigned' });
+  });
+});
+
+describe('a promise to look something up that comes with no lookup', () => {
+  const t: Thread = { history: [], pending: [], connections: [], jira: { connected: true, defaultProject: 'SFT' }, calendar: { connected: true } };
+  const scripted = (...answers: unknown[]) => { const contexts: PlanContext[] = []; let n = 0; return { planner: createPlanner(async (_t, _l, _z, c) => { contexts.push(c); return answers[Math.min(n++, answers.length - 1)]; }), contexts }; };
+  const run = (planner: ReturnType<typeof createPlanner>, text: string, thread: Thread = t) => planner('alice', text, 'en-GB', 'Europe/London', thread);
+  const agenda = { type: 'calendar.agenda', from: '2026-10-05' };
+
+  it('sends the answer back once for the lookup it promised, and uses the second answer', async () => {
+    for (const promise of ["I'll check your calendar for tomorrow.", 'Let me look that up for you.', "Here is what's on your calendar for tomorrow.", 'I will search Jira for those.', 'I found the onboarding epic with the key SFT-267.', "I've checked your calendar and you are free."]) {
+      const { planner, contexts } = scripted({ reply: promise, tasks: [] }, { reply: 'Looking.', lookups: [agenda] });
+      const result = await run(planner, 'what is on tomorrow');
+      expect(contexts, promise).toHaveLength(2);
+      expect(contexts[1].repair).toMatch(/returned no lookup/);
+      expect(result.calendarLookups, promise).toEqual([agenda]);
+    }
+  });
+
+  it('says plainly that there is no answer yet when the retry still promises without a lookup', async () => {
+    const result = await run(scripted({ reply: "I'll check your calendar for tomorrow.", tasks: [] }).planner, 'what is on tomorrow');
+    expect(result.reply).toMatch(/did not actually do it/);
+    expect(result.reply).not.toMatch(/I'll check/);
+  });
+
+  it('leaves normal answers, questions, other tasks, the second pass and unconnected users alone', async () => {
+    const plain = scripted({ reply: 'I can help with Jira and your calendar.', tasks: [] });
+    expect((await run(plain.planner, 'what can you do')).reply).toBe('I can help with Jira and your calendar.');
+    expect(plain.contexts).toHaveLength(1);
+    const second = scripted({ reply: "Here is what's on your calendar: one meeting." });
+    expect((await run(second.planner, 'what is on', { ...t, lookupResults: [{ type: 'calendar.agenda' }] })).reply).toBe("Here is what's on your calendar: one meeting.");
+    const off = scripted({ reply: "I'll check your calendar.", tasks: [] });
+    expect((await run(off.planner, 'what is on', { history: [], pending: [], connections: [] })).reply).toBe("I'll check your calendar.");
+    expect(off.contexts).toHaveLength(1);
+    const withCard = scripted({ reply: "Here is the card I prepared.", tasks: [item('email.send', 'sam@example.com', { to: ['sam@example.com'], subject: 'x', body: 'y' })] });
+    expect((await run(withCard.planner, 'email sam@example.com')).tasks).toHaveLength(1);
+  });
+});
+
+describe('lookups that cannot be used', () => {
+  const t: Thread = { history: [], pending: [], connections: [], jira: { connected: true, defaultProject: 'SFT' }, calendar: { connected: true } };
+  const scripted = (...answers: unknown[]) => { const contexts: PlanContext[] = []; let n = 0; return { planner: createPlanner(async (_t, _l, _z, c) => { contexts.push(c); return answers[Math.min(n++, answers.length - 1)]; }), contexts }; };
+  const run = (planner: ReturnType<typeof createPlanner>, text: string, thread: Thread = t) => planner('alice', text, 'en-GB', 'Europe/London', thread);
+
+  it('sends back once a lookup whose date is a weekday, and uses the corrected one', async () => {
+    const good = { type: 'calendar.free', date: '2026-10-09', startTime: '12:00', endTime: '18:00' };
+    const { planner, contexts } = scripted({ reply: 'Checking.', lookups: [{ type: 'calendar.free', date: 'Friday', startTime: '12:00', endTime: '18:00' }] }, { reply: 'Checking.', lookups: [good] });
+    const result = await run(planner, 'am I free on Friday afternoon?');
+    expect(contexts).toHaveLength(2);
+    expect(contexts[1].repair).toMatch(/YYYY-MM-DD/);
+    expect(result.calendarLookups).toEqual([good]);
+  });
+
+  it('gives up with a plain message when the lookups stay unusable, and never retries more than once', async () => {
+    const bad = { reply: 'Checking.', lookups: [{ type: 'calendar.free', date: 'Friday' }, { type: 'nonsense' }] };
+    const { planner, contexts } = scripted(bad);
+    const result = await run(planner, 'am I free on Friday afternoon?');
+    expect(contexts).toHaveLength(2);
+    expect(result.reply).toMatch(/nothing was prepared or changed/);
+    expect(result.lookups).toEqual([]);
+  });
+
+  it('does not interfere when at least one lookup is valid, when nothing is connected, or on the second pass', async () => {
+    const mixed = scripted({ reply: 'Checking.', lookups: [{ type: 'calendar.free', date: 'Friday' }, { type: 'calendar.next' }] });
+    expect((await run(mixed.planner, 'next meeting and friday')).calendarLookups).toEqual([{ type: 'calendar.next' }]);
+    expect(mixed.contexts).toHaveLength(1);
+    const off = scripted({ reply: 'Not connected.', tasks: [], lookups: [{ type: 'calendar.free', date: 'Friday' }] });
+    expect((await run(off.planner, 'am I free', { history: [], pending: [], connections: [] })).reply).toBe('Not connected.');
+    expect(off.contexts).toHaveLength(1);
+  });
+});
+
+describe('weekday dates for the model', () => {
+  it('lists the next 14 days with weekday names and exact dates in the user\'s time zone', () => {
+    const days = upcomingDays(new Date('2026-10-04T10:00:00Z'), 'Europe/London');
+    expect(days).toHaveLength(14);
+    expect(days[0]).toEqual({ weekday: 'Sunday', date: '2026-10-04' });
+    expect(days[5]).toEqual({ weekday: 'Friday', date: '2026-10-09' });
+    expect(days[13]).toEqual({ weekday: 'Saturday', date: '2026-10-17' });
+  });
+  it('uses the user\'s own date near midnight, and falls back to UTC for an unknown zone', () => {
+    expect(upcomingDays(new Date('2026-10-04T23:30:00Z'), 'Europe/Istanbul')[0]).toEqual({ weekday: 'Monday', date: '2026-10-05' });
+    expect(upcomingDays(new Date('2026-10-04T23:30:00Z'), 'Not/AZone')[0].date).toBe('2026-10-04');
+  });
+  it('puts the days into what the model sees, and tells it to copy dates from them', () => {
+    const last = JSON.parse(buildChatMessages('am I free Friday', 'en', 'Europe/London', { nowIso: '2026-10-04T10:00:00Z', today: 'Sunday, 4 October 2026', thread: { history: [], pending: [], connections: [] } }).at(-1)!.content);
+    expect(last.days[5]).toEqual({ weekday: 'Friday', date: '2026-10-09' });
+    expect(PLANNER_INSTRUCTIONS).toMatch(/copy the date from that list/);
+    expect(JSON.parse(buildChatMessages('x', 'en', 'UTC', { nowIso: '', today: '', thread: { history: [], pending: [], connections: [] } }).at(-1)!.content).days).toEqual([]);
   });
 });
 

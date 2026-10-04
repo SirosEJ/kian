@@ -1,0 +1,40 @@
+{
+  "total": 66,
+  "passed": 66,
+  "passRate": 1,
+  "clarificationRate": 0,
+  "unsafe": 0,
+  "byArea": {
+    "jira": {
+      "total": 24,
+      "passed": 24
+    },
+    "actions": {
+      "total": 16,
+      "passed": 16
+    },
+    "honesty": {
+      "total": 16,
+      "passed": 16
+    },
+    "calendar": {
+      "total": 10,
+      "passed": 10
+    }
+  },
+  "byOutcome": {
+    "lookup": {
+      "precision": 1,
+      "recall": 1
+    },
+    "tasks": {
+      "precision": 1,
+      "recall": 1
+    },
+    "reply": {
+      "precision": 1,
+      "recall": 1
+    }
+  },
+  "failures": []
+}
