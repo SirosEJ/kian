@@ -76,6 +76,16 @@ export function shownNote(tables: ResultTable[] | null | undefined): string {
 const NOT_CONNECTED = 'I could not find a connected Jira site. Connect Jira under Settings (open it from your profile at the top right) and ask me again.';
 const CALENDAR_NOT_CONNECTED = 'I could not find a connected Google Calendar. Connect it under Settings (open it from your profile at the top right) and ask me again.';
 
+/**
+ * When the user's message and Kian's reply are stored, each one is strictly later than everything already in the conversation, so the
+ * order never depends on the clock (a reply that needs no model call can come back within the same millisecond as the last one).
+ */
+async function nextStamps(client: Queryable, conversationId: string): Promise<[Date, Date]> {
+  const last = (await client.query('SELECT max(created_at) AS m FROM messages WHERE conversation_id=$1', [conversationId])).rows[0] as { m: string | Date | null };
+  const first = new Date(Math.max(Date.now(), last?.m ? new Date(last.m).getTime() + 1 : 0));
+  return [first, new Date(first.getTime() + 1)];
+}
+
 export function createConversationService(db: Queryable, plan: Plan, jira?: JiraLookupPort, calendar?: CalendarLookupPort, memory?: MemoryStore) {
   async function ownedConversation(ownerId: string, conversationId: string): Promise<string> {
     const row = (await db.query('SELECT id FROM conversations WHERE id=$1 AND owner_id=$2', [conversationId, ownerId])).rows[0];
@@ -103,7 +113,8 @@ export function createConversationService(db: Queryable, plan: Plan, jira?: Jira
     const persona = personaReply(text, previous?.content);
     if (persona) {
       return transaction(db, async client => {
-        await client.query(`INSERT INTO messages (id,conversation_id,owner_id,role,content,task_ids,attachments,created_at) VALUES ($1,$2,$3,'user',$4,'[]','[]',clock_timestamp()),($5,$2,$3,'assistant',$6,'[]',$7,clock_timestamp() + interval '1 millisecond')`, [randomUUID(), id, ownerId, text, randomUUID(), persona.reply, JSON.stringify(persona.photos.length ? [{ kind: 'photos', ids: persona.photos }] : [])]);
+        const [at, replyAt] = await nextStamps(client, id);
+        await client.query(`INSERT INTO messages (id,conversation_id,owner_id,role,content,task_ids,attachments,created_at) VALUES ($1,$2,$3,'user',$4,'[]','[]',$8),($5,$2,$3,'assistant',$6,'[]',$7,$9)`, [randomUUID(), id, ownerId, text, randomUUID(), persona.reply, JSON.stringify(persona.photos.length ? [{ kind: 'photos', ids: persona.photos }] : []), at, replyAt]);
         await client.query('UPDATE conversations SET updated_at=now() WHERE id=$1', [id]);
         return { conversationId: id, reply: persona.reply, tasks: [], tables: [], photos: persona.photos };
       });
@@ -177,7 +188,8 @@ export function createConversationService(db: Queryable, plan: Plan, jira?: Jira
           if (updated.rows.length) await client.query('INSERT INTO activity(id,owner_id,task_id,event,details) VALUES ($1,$2,$3,$4,$5)', [randomUUID(), ownerId, row.id, 'task.replaced', JSON.stringify({ conversationId: id })]);
         }
       }
-      await client.query(`INSERT INTO messages (id,conversation_id,owner_id,role,content,task_ids,attachments,created_at) VALUES ($1,$2,$3,'user',$4,'[]','[]',clock_timestamp()),($5,$2,$3,'assistant',$6,$7,$8,clock_timestamp() + interval '1 millisecond')`, [randomUUID(), id, ownerId, text, randomUUID(), result.reply, JSON.stringify(tasks.map(t => t.id)), JSON.stringify(tables)]);
+      const [at, replyAt] = await nextStamps(client, id);
+      await client.query(`INSERT INTO messages (id,conversation_id,owner_id,role,content,task_ids,attachments,created_at) VALUES ($1,$2,$3,'user',$4,'[]','[]',$9),($5,$2,$3,'assistant',$6,$7,$8,$10)`, [randomUUID(), id, ownerId, text, randomUUID(), result.reply, JSON.stringify(tasks.map(t => t.id)), JSON.stringify(tables), at, replyAt]);
       await client.query('UPDATE conversations SET updated_at=now() WHERE id=$1', [id]);
       return { conversationId: id, reply: result.reply, tasks, tables };
     });

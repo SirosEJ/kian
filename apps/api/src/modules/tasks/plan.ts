@@ -147,6 +147,10 @@ export function createPlanner(model: PlanModel) {
     if (!thread.lookupResults && COUNT_QUESTION.test(text) && (thread.jira?.connected || thread.calendar?.connected) && !(Array.isArray(answer?.tasks) && answer.tasks.length > 0)) {
       return { reply: COUNT_REFUSAL, tasks: [], pending: 'keep', retry: 'The user asked "how many". A number may only come from a lookup: return a "search" (or a report, or a calendar lookup) and no tasks, and the app will give you the real count in the next pass. Never answer a number from earlier messages.', failure: COUNT_REFUSAL };
     }
+    // Lookups were asked for but none of them is valid (for example a date written as "Friday"): sent back once with the rule that was broken.
+    if (!thread.lookupResults && !jiraOk && !calendarOk && Array.isArray(cleaned) && cleaned.length > 0 && asked.lookups.length === 0 && askedCalendar.length === 0 && (thread.jira?.connected || thread.calendar?.connected)) {
+      return { reply: UNREADABLE, tasks: [], pending: 'keep', retry: 'None of your lookups could be used. Every date must be written YYYY-MM-DD, worked out from "today" in the user\'s time zone (never a weekday or "tomorrow"); times are HH:MM; only the documented types and fields are allowed. Return the lookups again, correctly, and no tasks.' };
+    }
     // Promised a lookup but returned none: one retry for the lookup, otherwise an honest note instead of the empty promise.
     if (!thread.lookupResults && (thread.jira?.connected || thread.calendar?.connected) && PROMISES_LOOKUP.test(typeof answer?.reply === 'string' ? answer.reply : '') && !(Array.isArray(answer?.tasks) && answer.tasks.length > 0)) {
       return { reply: PROMISE_REFUSAL, tasks: [], pending: 'keep', retry: 'Your reply says you will check or show something, but you returned no lookup. If the user asked about Jira or the calendar, return the "lookups" (and no tasks) now; the app will give you the results in the next pass. If there is nothing to look up, answer in plain words without promising anything.', failure: PROMISE_REFUSAL };

@@ -675,3 +675,36 @@ describe('a promise to look something up that comes with no lookup', () => {
   });
 });
 
+describe('lookups that cannot be used', () => {
+  const t: Thread = { history: [], pending: [], connections: [], jira: { connected: true, defaultProject: 'SFT' }, calendar: { connected: true } };
+  const scripted = (...answers: unknown[]) => { const contexts: PlanContext[] = []; let n = 0; return { planner: createPlanner(async (_t, _l, _z, c) => { contexts.push(c); return answers[Math.min(n++, answers.length - 1)]; }), contexts }; };
+  const run = (planner: ReturnType<typeof createPlanner>, text: string, thread: Thread = t) => planner('alice', text, 'en-GB', 'Europe/London', thread);
+
+  it('sends back once a lookup whose date is a weekday, and uses the corrected one', async () => {
+    const good = { type: 'calendar.free', date: '2026-10-09', startTime: '12:00', endTime: '18:00' };
+    const { planner, contexts } = scripted({ reply: 'Checking.', lookups: [{ type: 'calendar.free', date: 'Friday', startTime: '12:00', endTime: '18:00' }] }, { reply: 'Checking.', lookups: [good] });
+    const result = await run(planner, 'am I free on Friday afternoon?');
+    expect(contexts).toHaveLength(2);
+    expect(contexts[1].repair).toMatch(/YYYY-MM-DD/);
+    expect(result.calendarLookups).toEqual([good]);
+  });
+
+  it('gives up with a plain message when the lookups stay unusable, and never retries more than once', async () => {
+    const bad = { reply: 'Checking.', lookups: [{ type: 'calendar.free', date: 'Friday' }, { type: 'nonsense' }] };
+    const { planner, contexts } = scripted(bad);
+    const result = await run(planner, 'am I free on Friday afternoon?');
+    expect(contexts).toHaveLength(2);
+    expect(result.reply).toMatch(/nothing was prepared or changed/);
+    expect(result.lookups).toEqual([]);
+  });
+
+  it('does not interfere when at least one lookup is valid, when nothing is connected, or on the second pass', async () => {
+    const mixed = scripted({ reply: 'Checking.', lookups: [{ type: 'calendar.free', date: 'Friday' }, { type: 'calendar.next' }] });
+    expect((await run(mixed.planner, 'next meeting and friday')).calendarLookups).toEqual([{ type: 'calendar.next' }]);
+    expect(mixed.contexts).toHaveLength(1);
+    const off = scripted({ reply: 'Not connected.', tasks: [], lookups: [{ type: 'calendar.free', date: 'Friday' }] });
+    expect((await run(off.planner, 'am I free', { history: [], pending: [], connections: [] })).reply).toBe('Not connected.');
+    expect(off.contexts).toHaveLength(1);
+  });
+});
+
