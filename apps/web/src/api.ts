@@ -10,3 +10,11 @@ export async function apiRequest(path: string, method = 'GET', payload?: unknown
   }
   return response.status === 204 ? null : response.json();
 }
+
+/** A binary answer (an image) from the API, with the signed-in user's token. */
+export async function apiBlob(path: string): Promise<Blob> {
+  const token = await getUserToken();
+  const response = await fetch(`${base}${path}`, { headers: { Authorization: `Bearer ${token}` } });
+  if (!response.ok) throw Object.assign(new Error(`Request failed (${response.status})`), { status: response.status });
+  return response.blob();
+}
