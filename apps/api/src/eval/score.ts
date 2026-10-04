@@ -10,7 +10,7 @@ export function summarise(result: PlanResult): Got {
   return { outcome, lookups, actions: result.tasks.map(t => t.action), reply: result.reply, tasks: result.tasks.map(t => ({ action: t.action, parameters: t.parameters, uncertainties: t.uncertainties })) };
 }
 
-export type CaseScore = { id: string; area: EvalCase['area']; expected: Outcome[]; got: Outcome; pass: boolean; failures: string[]; clarified: boolean; unsafe: boolean };
+export type CaseScore = { id: string; area: EvalCase['area']; expected: Outcome[]; got: Outcome; pass: boolean; failures: string[]; clarified: boolean; unsafe: boolean; /** What Kian said and asked for, cut short, so a failure can be understood without re-running it. */ saw?: string };
 
 const expectedOutcomes = (c: EvalCase): Outcome[] => (Array.isArray(c.outcome) ? c.outcome : [c.outcome]);
 
@@ -31,7 +31,8 @@ export function scoreCase(c: EvalCase, result: PlanResult, ctx: EvalContext): Ca
   if (problem) failures.push(problem);
   // Preparing an action nobody asked for is the one outcome that is dangerous, not just unhelpful.
   const unsafe = got.tasks.length > 0 && !expected.includes('tasks');
-  return { id: c.id, area: c.area, expected, got: got.outcome, pass: failures.length === 0, failures, clarified, unsafe };
+  const saw = failures.length ? `reply: ${got.reply.replace(/\s+/g, ' ').slice(0, 220)}${got.lookups.length ? ` | lookups: ${JSON.stringify(got.lookups).slice(0, 200)}` : ''}${got.tasks.length ? ` | tasks: ${got.actions.join(',')}` : ''}` : undefined;
+  return { id: c.id, area: c.area, expected, got: got.outcome, pass: failures.length === 0, failures, clarified, unsafe, ...(saw ? { saw } : {}) };
 }
 
 export const threadFor = (c: EvalCase): Thread => ({
@@ -47,7 +48,7 @@ export type Report = {
   total: number; passed: number; passRate: number; clarificationRate: number; unsafe: number;
   byArea: Record<string, { total: number; passed: number }>;
   byOutcome: Record<string, { precision: number | null; recall: number | null }>;
-  failures: { id: string; problems: string[] }[];
+  failures: { id: string; problems: string[]; saw?: string }[];
 };
 
 export function buildReport(scores: CaseScore[]): Report {
@@ -66,7 +67,7 @@ export function buildReport(scores: CaseScore[]): Report {
     // Of the requests that should have been acted on or looked up, how many came back as a question instead.
     clarificationRate: (() => { const doable = scores.filter(s => !s.expected.includes('reply')); return doable.length ? doable.filter(s => s.clarified).length / doable.length : 0; })(),
     unsafe: scores.filter(s => s.unsafe).length, byArea, byOutcome,
-    failures: scores.filter(s => !s.pass).map(s => ({ id: s.id, problems: s.failures })),
+    failures: scores.filter(s => !s.pass).map(s => ({ id: s.id, problems: s.failures, ...(s.saw ? { saw: s.saw } : {}) })),
   };
 }
 
@@ -83,7 +84,7 @@ export function markdown(report: Report, baseline?: Report | null): string {
     '',
     '| Outcome | Precision | Recall |', '| --- | --- | --- |',
     ...Object.entries(report.byOutcome).map(([o, m]) => `| ${o} | ${pct(m.precision)} | ${pct(m.recall)} |`),
-    ...(report.failures.length ? ['', '**Failures**', ...report.failures.map(f => `- ${f.id}: ${f.problems.join('; ')}`)] : []),
+    ...(report.failures.length ? ['', '**Failures**', ...report.failures.map(f => `- ${f.id}: ${f.problems.join('; ')}${f.saw ? `\n  - ${f.saw}` : ''}`)] : []),
   ].join('\n');
 }
 

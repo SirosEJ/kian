@@ -59,3 +59,31 @@ describe('the command evaluation set', () => {
     expect(text).toContain('- b: x');
   });
 });
+
+describe('running the evaluation reliably', () => {
+  it('waits and retries a rate-limited call, gives up after four tries, and does not retry other failures', async () => {
+    const { withRetry } = await import('./cli.js');
+    const waits: number[] = [];
+    let calls = 0;
+    const flaky = async () => { calls++; if (calls < 3) throw Object.assign(new Error('429 Rate limit reached for gpt-4o'), { status: 429 }); return 'ok'; };
+    expect(await withRetry(flaky, async ms => { waits.push(ms); })).toBe('ok');
+    expect(waits).toEqual([15000, 30000]);
+    let always = 0;
+    await expect(withRetry(async () => { always++; throw new Error('Rate limit reached'); }, async () => {})).rejects.toThrow('Rate limit');
+    expect(always).toBe(4);
+    let other = 0;
+    await expect(withRetry(async () => { other++; throw new Error('bad key'); }, async () => {})).rejects.toThrow('bad key');
+    expect(other).toBe(1);
+  });
+
+  it('shows what Kian said next to each failure, so a failing case can be understood without re-running it', async () => {
+    const c = CASES.find(x => x.id === 'cal-delete-find-first')!;
+    const score = scoreCase(c, await run(c, { reply: 'Can you confirm the exact time of the event?', tasks: [] }), ctx);
+    expect(score.saw).toContain('reply: Can you confirm the exact time');
+    const text = markdown(buildReport([score]));
+    expect(text).toContain('- cal-delete-find-first:');
+    expect(text).toContain('reply: Can you confirm the exact time');
+    const passing = CASES.find(x => x.id === 'honest-greeting')!;
+    expect(scoreCase(passing, await run(passing, { reply: 'Hello!', tasks: [] }), ctx).saw).toBeUndefined();
+  });
+});
