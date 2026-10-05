@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { addDays, clampDate, parseLookups, quote, searchJql, LIMITS, type SearchLookup } from './lookups.js';
+import { addDays, clampDate, describeSearch, LookupSchema, parseLookups, quote, searchJql, LIMITS, type SearchLookup } from './lookups.js';
 
 const today = '2026-10-02';
 const search = (over: Partial<SearchLookup> = {}): SearchLookup => ({ type: 'search', ...over });
@@ -82,3 +82,15 @@ describe('Jira lookups from the model', () => {
   });
 });
 
+
+describe('stories of another person', () => {
+  it('searches by the name Jira shows, and says so in the note', () => {
+    const lookup = LookupSchema.parse({ type: 'search', assigneeName: 'Nuray Guner' });
+    const { jql } = searchJql(lookup as never, '2026-10-05', 'SFT');
+    expect(jql).toContain('assignee = "Nuray Guner"');
+    expect(describeSearch(lookup as never, 'SFT')).toContain('assigned to Nuray Guner');
+  });
+  it('refuses a name that is not a name, and never lets it change the query', () => {
+    for (const bad of ['x" OR project = OTHER', 'a', 'Sam; DROP', '<b>Sam</b>']) expect(LookupSchema.safeParse({ type: 'search', assigneeName: bad }).success, bad).toBe(false);
+  });
+});

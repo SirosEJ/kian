@@ -14,7 +14,7 @@ export const REPORT_KINDS = ['status_summary', 'created_vs_resolved', 'by_assign
 export const LookupSchema = z.discriminatedUnion('type', [
   z.object({
     type: z.literal('search'), project: projectKey.optional(), issueTypes: z.array(word).max(5).optional(), statuses: z.array(word).max(8).optional(),
-    statusCategory: z.enum(['To Do', 'In Progress', 'Done']).optional(), assignee: z.enum(['me', 'unassigned']).optional(),
+    statusCategory: z.enum(['To Do', 'In Progress', 'Done']).optional(), assignee: z.enum(['me', 'unassigned']).optional(), assigneeName: z.string().trim().min(2).max(60).regex(/^[\p{L}][\p{L} .'’-]*$/u).optional(),
     createdFrom: date.optional(), createdTo: date.optional(), updatedFrom: date.optional(), updatedTo: date.optional(), resolvedFrom: date.optional(), resolvedTo: date.optional(),
     epic: issueKey.optional(), keys: z.array(issueKey).max(20).optional(), text: z.string().trim().min(1).max(100).optional(), orderBy: z.enum(['created', 'updated']).optional(), limit: z.number().int().min(1).max(LIMITS.tableRows).optional(),
   }),
@@ -67,6 +67,8 @@ export function searchJql(lookup: SearchLookup, today: string, defaultProject: s
   if (lookup.statusCategory) parts.push(`statusCategory = ${quote(lookup.statusCategory)}`);
   if (lookup.assignee === 'me') parts.push('assignee = currentUser()');
   if (lookup.assignee === 'unassigned') parts.push('assignee is EMPTY');
+  // Another person, by the name Jira shows: Jira matches display names itself, so no extra permission is needed.
+  if (lookup.assigneeName && !lookup.assignee) parts.push(`assignee = ${quote(lookup.assigneeName)}`);
   let dated = false;
   for (const [field, from, to] of [['created', lookup.createdFrom, lookup.createdTo], ['updated', lookup.updatedFrom, lookup.updatedTo], ['resolutiondate', lookup.resolvedFrom, lookup.resolvedTo]] as const) {
     const f = clampDate(from, today, notes), t = clampDate(to, today, notes);
@@ -91,6 +93,7 @@ export function describeSearch(lookup: SearchLookup, defaultProject: string | nu
   if (lookup.statusCategory) parts.push(`status category ${lookup.statusCategory}`);
   if (lookup.assignee === 'me') parts.push('assigned to you');
   if (lookup.assignee === 'unassigned') parts.push('unassigned');
+  if (lookup.assigneeName && !lookup.assignee) parts.push(`assigned to ${lookup.assigneeName}`);
   for (const [label, from, to] of [['created', lookup.createdFrom, lookup.createdTo], ['updated', lookup.updatedFrom, lookup.updatedTo], ['resolved', lookup.resolvedFrom, lookup.resolvedTo]] as const) {
     if (from || to) parts.push(`${label} ${from && to ? (from === to ? `on ${from}` : `${from} to ${to}`) : from ? `from ${from}` : `until ${to}`}`);
   }
