@@ -770,3 +770,11 @@ describe('answers from the owner’s production testing (5 Oct)', () => {
     expect(stuck.reply).not.toMatch(/ask again/i);
   });
 });
+
+describe('stories of another person (production, 5 Oct)', () => {
+  const t: Thread = { history: [], pending: [], connections: [], jira: { connected: true, defaultProject: 'SFT' }, calendar: { connected: true } };
+  it('turns a name written in "assignee" into assigneeName', async () => {
+    const result = await createPlanner(async () => ({ reply: 'Searching.', lookups: [{ type: 'search', assignee: 'Nuray Guner' }] }))('alice', 'give me the list of jira stories that assigned to Nuray Guner', 'en-GB', 'Europe/London', t);
+    expect(result.lookups).toEqual([{ type: 'search', assigneeName: 'Nuray Guner' }]);
+  });
+});
