@@ -95,6 +95,8 @@ jobs:
         env:
           GOOGLE_CLIENT_ID: ${{ vars.KIAN_GOOGLE_CLIENT_ID }}
           JIRA_CLIENT_ID: ${{ vars.KIAN_JIRA_CLIENT_ID }}
+          TEAMS_CLIENT_ID: ${{ vars.KIAN_TEAMS_CLIENT_ID }}
+          TEAMS_TENANT: ${{ vars.KIAN_TEAMS_TENANT }}
         run: |
           # Stable, deterministic Cloud Run URL: register https://<service>-<project number>.<region>.run.app/ as the OAuth redirect.
           PROJECT_NUMBER="$(gcloud projects describe "${{ vars.GCP_PROJECT_ID }}" --format='value(projectNumber)')"
@@ -114,6 +116,13 @@ jobs:
             SECRETS="$SECRETS,JIRA_CLIENT_SECRET=kian-jira-client-secret:latest"
           else
             echo "::warning::Jira Cloud not configured (set the variable KIAN_JIRA_CLIENT_ID, and create the secret kian-jira-client-secret first)"
+          fi
+          # Microsoft Teams: the redirect keeps the trailing slash (register it exactly in the Entra app). TEAMS_TENANT is optional (default: any work or school account).
+          if [ -n "$TEAMS_CLIENT_ID" ]; then
+            ENVS="$ENVS,TEAMS_CLIENT_ID=$TEAMS_CLIENT_ID,TEAMS_REDIRECT_URI=$BASE,TEAMS_TENANT=${TEAMS_TENANT:-organizations}"
+            SECRETS="$SECRETS,TEAMS_CLIENT_SECRET=kian-teams-client-secret:latest"
+          else
+            echo "::warning::Microsoft Teams not configured (set the variable KIAN_TEAMS_CLIENT_ID, and create the secret kian-teams-client-secret first)"
           fi
           echo "envs=$ENVS" >> "$GITHUB_OUTPUT"
           echo "secrets=$SECRETS" >> "$GITHUB_OUTPUT"

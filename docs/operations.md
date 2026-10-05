@@ -82,6 +82,38 @@ To clean a story by hand (for example one merged before this existed), run the w
 
 The web app has four pages: Home `/`, Activity `/activity`, Settings `/settings` and Account `/account` (reached from the profile menu at the top right). The API serves the app for a browser load of these paths (a request that accepts `text/html`); the app's own requests to `/activity` and other API paths still get JSON. Unknown paths return a 404 JSON error from the API. OAuth redirect URLs stay as the site root with a trailing slash (`https://<host>/`): the app moves that return to `/settings?code=...&state=...` before the page loads, where the connection is completed. Do not register `/settings` as a redirect.
 
+## Microsoft Teams (SFT-335, connection from SFT-336)
+
+Kian connects to Teams through Microsoft Graph with each person's own delegated sign-in (authorization code with PKCE and a client secret). Kian never holds an organisation-wide key, and it can only see and do what the signed-in person can.
+
+**Microsoft Entra app (owner action, one time)**
+
+1. Entra admin centre, Identity, Applications, App registrations, New registration. Name `Kian`. Account type: any organizational directory (multitenant), or this directory only if only your own company will use it. Not personal Microsoft accounts (Teams chat needs a work or school account).
+2. Redirect URIs, platform **Web**, exactly: `https://kian-staging-1088794188480.europe-west1.run.app/` and `https://kian.sepenta.io/` (with the trailing slash).
+3. API permissions, Microsoft Graph, **Delegated**: `User.Read`, `offline_access`, `Chat.Read`, `Chat.ReadWrite`, `ChatMessage.Send`. Then **Grant admin consent**. If the button is not available, a Global Administrator or Privileged Role Administrator must do it. Without approval the user sees: "Microsoft needs an administrator of your organisation to approve Kian before you can connect."
+4. Certificates and secrets, New client secret (note its expiry date: when it expires, connecting and refreshing stop until a new value is stored). The value is shown once.
+
+**Settings Kian reads (names only; values never go in the repo or in chat)**
+
+| What | Staging | Production |
+| --- | --- | --- |
+| GitHub variable: application (client) ID | `KIAN_TEAMS_CLIENT_ID` | `KIAN_PROD_TEAMS_CLIENT_ID` |
+| GitHub variable (optional): directory (tenant) ID, default `organizations` | `KIAN_TEAMS_TENANT` | `KIAN_PROD_TEAMS_TENANT` |
+| Secret Manager secret: client secret value | `kian-teams-client-secret` | `kian-prod-teams-client-secret` |
+
+The deploy workflows turn Teams on only when the client ID variable is set; the Cloud Run runtime service account needs `roles/secretmanager.secretAccessor` on the secret. Without the variable, Settings shows the Connect button but answers "Microsoft Teams is not available yet."
+
+**Storing the secret (Cloud Shell, never in chat)** (staging shown; use the `kian-prod-` name for production):
+
+```bash
+printf '%s' 'PASTE-THE-SECRET-VALUE-HERE' | gcloud secrets create kian-teams-client-secret --data-file=- --project <project id>
+gcloud secrets add-iam-policy-binding kian-teams-client-secret --member="serviceAccount:<project number>-compute@developer.gserviceaccount.com" --role=roles/secretmanager.secretAccessor --project <project id>
+```
+
+**Stored data and removal.** Tokens are encrypted with `KIAN_ENCRYPTION_KEY` like the other providers; the sign-in's PKCE verifier lives in `oauth_states.code_verifier` for at most ten minutes and is cleared when used. Disconnect in Settings clears the stored tokens. To also remove Kian's access on the Microsoft side, a user opens https://myapps.microsoft.com (or an admin uses Enterprise applications, Kian, Delete) and removes the app.
+
+**Loosening or reducing permissions.** Reading chats needs `Chat.Read`; sending needs `ChatMessage.Send`. If the organisation refuses the sending permission, remove it from `TEAMS_SCOPES` in `packages/connectors/src/microsoft-teams.ts` and from the Entra app; reading keeps working and the send story (SFT-338) stays switched off.
+
 ## Secrets and account configuration
 
 Supply `DATABASE_URL`, Firebase application default credentials and project ID, `OPENAI_API_KEY`, Google and Jira OAuth client values and one persistent base64 32-byte `KIAN_ENCRYPTION_KEY`. Store them in the deployment secret manager. `KIAN_PLANNING_MODEL` (optional) is a comma separated list of OpenAI models tried in order for Kian's conversation, default `gpt-4.1,gpt-4o`; an unavailable model falls through to the next. Conversation limits (4000 characters per message, 200 messages per conversation, 40 messages per user per 10 minutes, last 20 messages sent to the model) are in `apps/api/src/modules/conversations/service.ts`. Migrations run automatically on deploy; `002_conversations.sql` adds conversations and messages. Never commit customer mailbox passwords or OAuth tokens. Losing or rotating the encryption key without re-encryption makes saved connections unusable; ask users to reconnect.

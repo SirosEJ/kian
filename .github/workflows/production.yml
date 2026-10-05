@@ -81,6 +81,7 @@ jobs:
         env:
           GOOGLE_CLIENT_ID: ${{ vars.KIAN_PROD_GOOGLE_CLIENT_ID }}
           JIRA_CLIENT_ID: ${{ vars.KIAN_PROD_JIRA_CLIENT_ID }}
+          TEAMS_CLIENT_ID: ${{ vars.KIAN_PROD_TEAMS_CLIENT_ID }}
         run: |
           set -euo pipefail
           missing=""
@@ -102,6 +103,7 @@ jobs:
           # Provider apps are optional at first; without them the Settings page simply cannot connect that provider.
           [ -n "$GOOGLE_CLIENT_ID" ] || echo "::warning::Google Calendar not configured for production (variable KIAN_PROD_GOOGLE_CLIENT_ID)"
           [ -n "$JIRA_CLIENT_ID" ] || echo "::warning::Jira Cloud not configured for production (variable KIAN_PROD_JIRA_CLIENT_ID)"
+          [ -n "$TEAMS_CLIENT_ID" ] || echo "::warning::Microsoft Teams not configured for production (variable KIAN_PROD_TEAMS_CLIENT_ID)"
 
       - name: Write public Firebase web config for the image build
         run: |
@@ -117,6 +119,8 @@ jobs:
           OPENAI_SECRET: ${{ vars.KIAN_OPENAI_SECRET || 'estate-openai-api-key' }}
           GOOGLE_CLIENT_ID: ${{ vars.KIAN_PROD_GOOGLE_CLIENT_ID }}
           JIRA_CLIENT_ID: ${{ vars.KIAN_PROD_JIRA_CLIENT_ID }}
+          TEAMS_CLIENT_ID: ${{ vars.KIAN_PROD_TEAMS_CLIENT_ID }}
+          TEAMS_TENANT: ${{ vars.KIAN_PROD_TEAMS_TENANT }}
         run: |
           ENVS="GOOGLE_CLOUD_PROJECT=${{ vars.KIAN_FIREBASE_PROJECT_ID }}"
           # The database address and the encryption key come from Secret Manager only, so they never appear in this workflow's output.
@@ -130,6 +134,10 @@ jobs:
           if [ -n "$JIRA_CLIENT_ID" ]; then
             ENVS="$ENVS,JIRA_CLIENT_ID=$JIRA_CLIENT_ID,JIRA_REDIRECT_URI=${PUBLIC_URL%/}"
             SECRETS="$SECRETS,JIRA_CLIENT_SECRET=kian-prod-jira-client-secret:latest"
+          fi
+          if [ -n "$TEAMS_CLIENT_ID" ]; then
+            ENVS="$ENVS,TEAMS_CLIENT_ID=$TEAMS_CLIENT_ID,TEAMS_REDIRECT_URI=${PUBLIC_URL},TEAMS_TENANT=${TEAMS_TENANT:-organizations}"
+            SECRETS="$SECRETS,TEAMS_CLIENT_SECRET=kian-prod-teams-client-secret:latest"
           fi
           echo "envs=$ENVS" >> "$GITHUB_OUTPUT"
           echo "secrets=$SECRETS" >> "$GITHUB_OUTPUT"

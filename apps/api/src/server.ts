@@ -16,6 +16,7 @@ import { saveProposals } from './modules/tasks/store.js';
 import { registerDecisionRoutes } from './modules/tasks/activity.js';
 import { registerConnectionRoutes } from './modules/connections/routes.js';
 import { registerJiraConnectionRoutes } from './modules/connections/jira-routes.js';
+import { registerTeamsConnectionRoutes } from './modules/connections/teams-routes.js';
 import { registerMailConnectionRoutes } from './modules/connections/mail-routes.js';
 import { registerAccountRoutes } from './modules/identity/account.js';
 import { createRunner } from './modules/execution/runner.js';
@@ -78,6 +79,7 @@ export function buildServer(options: ServerOptions = {}): FastifyInstance {
   if (pool) registerDecisionRoutes(app, pool, authenticate,runner ? (owner,id)=>runner.run(owner,id):undefined);
   if (pool && process.env.KIAN_ENCRYPTION_KEY) registerConnectionRoutes(app,pool,authenticate,{clientId:process.env.GOOGLE_CLIENT_ID || '',clientSecret:process.env.GOOGLE_CLIENT_SECRET || '',redirectUri:process.env.GOOGLE_REDIRECT_URI || '',encryptionKey:Buffer.from(process.env.KIAN_ENCRYPTION_KEY,'base64')});
   if (pool && process.env.JIRA_CLIENT_ID && process.env.JIRA_CLIENT_SECRET && process.env.JIRA_REDIRECT_URI && process.env.KIAN_ENCRYPTION_KEY) registerJiraConnectionRoutes(app,pool,authenticate,{clientId:process.env.JIRA_CLIENT_ID,clientSecret:process.env.JIRA_CLIENT_SECRET,redirectUri:process.env.JIRA_REDIRECT_URI,encryptionKey:Buffer.from(process.env.KIAN_ENCRYPTION_KEY,'base64')});
+  if (pool && process.env.TEAMS_CLIENT_ID && process.env.TEAMS_CLIENT_SECRET && process.env.TEAMS_REDIRECT_URI && process.env.KIAN_ENCRYPTION_KEY) registerTeamsConnectionRoutes(app,pool,authenticate,{clientId:process.env.TEAMS_CLIENT_ID,clientSecret:process.env.TEAMS_CLIENT_SECRET,redirectUri:process.env.TEAMS_REDIRECT_URI,tenant:process.env.TEAMS_TENANT || 'organizations',encryptionKey:Buffer.from(process.env.KIAN_ENCRYPTION_KEY,'base64')});
   if(pool && encryptionKey) registerMailConnectionRoutes(app,pool,authenticate,encryptionKey);
   if(runner && pool) {
     let timer:ReturnType<typeof setInterval>|undefined;
