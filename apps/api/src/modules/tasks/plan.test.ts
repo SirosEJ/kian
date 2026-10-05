@@ -835,5 +835,6 @@ describe('conversation routing (SFT-345)', () => {
     expect(PLANNER_INSTRUCTIONS).toMatch(/do not cancel or change pending actions because of a chat message/);
     expect(PLANNER_INSTRUCTIONS).toMatch(/cannot check live or current information/);
     expect(PLANNER_INSTRUCTIONS).toMatch(/return every pending action again/);
+    expect(PLANNER_INSTRUCTIONS).toMatch(/choose the better option yourself/);
   });
 });
