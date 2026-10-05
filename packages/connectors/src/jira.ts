@@ -32,7 +32,7 @@ export class JiraConnector implements Connector<JiraConnection,JiraCommand> {
       const body=await (await this.api(connection,`project/search?maxResults=100&startAt=${startAt}`)).json() as {values:{id:string;key:string;name:string}[];isLast?:boolean;total?:number};
       for(const project of body.values) {
         try { const types=await this.issueTypes(connection,project.key); if(types.length) result.push({id:project.key,projectKey:project.key,siteId:connection.siteId,name:project.name,canWrite:true,issueTypes:types}); }
-        catch(error) { if(!String(error).includes('(403)')) throw error; }
+        catch(error) { if(!/\((403|404)\)/.test(String(error))) throw error; }
       }
       startAt+=body.values.length;
       if(body.isLast || !body.values.length || (body.total!==undefined && startAt>=body.total)) return result;

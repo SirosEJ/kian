@@ -39,6 +39,24 @@ describe('Jira Cloud adapter',()=>{
   });
 });
 
+describe('listing Jira projects',()=>{
+  it('skips a project that answers 404 or 403 for create metadata and still lists the others (one hidden project must not break Settings)',async()=>{
+    const mock=vi.fn(async (url:string)=>{
+      const path=new URL(url).pathname;
+      if(path.includes('project/search')) return Response.json({values:[{id:'1',key:'NOPE',name:'No create'},{id:'2',key:'LOCKED',name:'Locked'},{id:'3',key:'SFT',name:'Kanban'}],isLast:true});
+      if(path.includes('/NOPE/')) return new Response('',{status:404});
+      if(path.includes('/LOCKED/')) return new Response('',{status:403});
+      return Response.json({issueTypes:[{id:'10224',name:'Story'}],isLast:true});
+    });
+    const result=await new JiraConnector(mock as typeof fetch).listDestinations({accessToken:'t',siteId:'s',siteUrl:'https://s.atlassian.net'} as never);
+    expect(result.map(p=>p.projectKey)).toEqual(['SFT']);
+  });
+  it('still fails loudly on a server error',async()=>{
+    const mock=vi.fn(async (url:string)=>new URL(url).pathname.includes('project/search')?Response.json({values:[{id:'1',key:'A',name:'A'}],isLast:true}):new Response('',{status:500}));
+    await expect(new JiraConnector(mock as typeof fetch).listDestinations({accessToken:'t',siteId:'s',siteUrl:'https://s.atlassian.net'} as never)).rejects.toThrow('500');
+  });
+});
+
 describe('Jira status changes',()=>{
   const fake=(opts:{status?:string;project?:string;transitions?:{id:string;name:string;to:{name:string}}[];postStatus?:number}={})=>{
     const posts:string[]=[];
