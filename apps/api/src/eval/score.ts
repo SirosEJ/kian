@@ -7,10 +7,10 @@ const ASKS = /\?\s*$/;
 export function summarise(result: PlanResult): Got {
   const lookups = [...(result.lookups ?? []), ...(result.calendarLookups ?? [])] as unknown as Record<string, unknown>[];
   const outcome: Outcome = lookups.length ? 'lookup' : result.tasks.length ? 'tasks' : 'reply';
-  return { outcome, lookups, actions: result.tasks.map(t => t.action), reply: result.reply, tasks: result.tasks.map(t => ({ action: t.action, parameters: t.parameters, uncertainties: t.uncertainties })) };
+  return { outcome, pending: result.pending, lookups, actions: result.tasks.map(t => t.action), reply: result.reply, tasks: result.tasks.map(t => ({ action: t.action, parameters: t.parameters, uncertainties: t.uncertainties })) };
 }
 
-export type CaseScore = { id: string; area: EvalCase['area']; expected: Outcome[]; got: Outcome; pass: boolean; failures: string[]; clarified: boolean; unsafe: boolean; /** What Kian said and asked for, cut short, so a failure can be understood without re-running it. */ saw?: string };
+export type CaseScore = { /** Milliseconds the planner took (set by the live run). */ ms?: number; id: string; area: EvalCase['area']; expected: Outcome[]; got: Outcome; pass: boolean; failures: string[]; clarified: boolean; unsafe: boolean; /** What Kian said and asked for, cut short, so a failure can be understood without re-running it. */ saw?: string };
 
 const expectedOutcomes = (c: EvalCase): Outcome[] => (Array.isArray(c.outcome) ? c.outcome : [c.outcome]);
 
@@ -49,7 +49,16 @@ export type Report = {
   byArea: Record<string, { total: number; passed: number }>;
   byOutcome: Record<string, { precision: number | null; recall: number | null }>;
   failures: { id: string; problems: string[]; saw?: string }[];
+  /** How long the planner took per answer, when it was timed (live runs). */
+  latency?: { medianMs: number; p90Ms: number };
 };
+
+function latencyOf(scores: CaseScore[]): { latency?: { medianMs: number; p90Ms: number } } {
+  const times = scores.map(s => s.ms).filter((ms): ms is number => typeof ms === 'number').sort((a, b) => a - b);
+  if (!times.length) return {};
+  const at = (q: number) => times[Math.min(times.length - 1, Math.floor(q * times.length))];
+  return { latency: { medianMs: Math.round(at(0.5)), p90Ms: Math.round(at(0.9)) } };
+}
 
 export function buildReport(scores: CaseScore[]): Report {
   const byArea: Report['byArea'] = {};
@@ -66,7 +75,7 @@ export function buildReport(scores: CaseScore[]): Report {
     total: scores.length, passed, passRate: scores.length ? passed / scores.length : 0,
     // Of the requests that should have been acted on or looked up, how many came back as a question instead.
     clarificationRate: (() => { const doable = scores.filter(s => !s.expected.includes('reply')); return doable.length ? doable.filter(s => s.clarified).length / doable.length : 0; })(),
-    unsafe: scores.filter(s => s.unsafe).length, byArea, byOutcome,
+    unsafe: scores.filter(s => s.unsafe).length, byArea, byOutcome, ...latencyOf(scores),
     failures: scores.filter(s => !s.pass).map(s => ({ id: s.id, problems: s.failures, ...(s.saw ? { saw: s.saw } : {}) })),
   };
 }
@@ -78,6 +87,7 @@ export function markdown(report: Report, baseline?: Report | null): string {
     '### Kian command evaluation',
     '',
     `Passed ${report.passed} of ${report.total} (${pct(report.passRate)})${delta(report.passRate, baseline?.passRate)}. Clarification questions on doable requests: ${pct(report.clarificationRate)}${delta(report.clarificationRate, baseline?.clarificationRate)}. Unrequested actions prepared: ${report.unsafe}.`,
+    ...(report.latency ? ['', `Planner time per answer: median ${(report.latency.medianMs / 1000).toFixed(1)} s, slowest tenth ${(report.latency.p90Ms / 1000).toFixed(1)} s${baseline?.latency ? ` (was ${(baseline.latency.medianMs / 1000).toFixed(1)} s and ${(baseline.latency.p90Ms / 1000).toFixed(1)} s)` : ''}.`] : []),
     '',
     '| Area | Passed |', '| --- | --- |',
     ...Object.entries(report.byArea).map(([area, a]) => `| ${area} | ${a.passed} / ${a.total} |`),
