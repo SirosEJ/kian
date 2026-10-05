@@ -300,3 +300,41 @@ Measured with the workflow "Evaluate Kian commands" against the real planning mo
 | This branch, final run after the fixes (apps/api/eval/after-sft-328.json) | 66 of 66 (100%) | 0% | 0 | Model answers vary between runs: the runs while fixing scored 88%, 94%, 98%, 98%, 97%, then 100%. Expect 95% or better, not always 100% |
 
 Live check on staging: ask "what is on my calendar tomorrow?", "am I free on Friday afternoon?", "delete the test booking in my calendar tomorrow" and "show me only the deployed ones" after listing your own stories: each should work first time.
+
+## SFT-232: end-to-end demo and failure testing on production
+
+Script: `docs/demo-script.md`. Release under test: commit `30e4d08`, revision `kian-prod-00005-mpt`, https://kian.sepenta.io/.
+
+### Checked by the agent on 4 Oct 2026 (no sign-in needed)
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| Production serves the app over HTTPS with a valid certificate | pass | Certificate for kian.sepenta.io from Google Trust Services, valid until 31 Dec 2026 |
+| `/health` | pass | `{"status":"ok"}` |
+| Every protected API route refuses a signed-out request (tasks, connections, memory, conversations, trust rules, activity, photos, instructions, transcriptions, account delete, connect starts, task decision) | pass | 401 on each; 401 as well with a made-up token |
+| Production and staging are separate: different Firebase project in the built web app | pass | production `kian-prod`, staging `project-92426ad2-8029-4ff6-bde` |
+| Production runtime has the OAuth, encryption, database and model settings it needs and keeps one instance running for the task worker | pass | Names only (no values): DATABASE_URL, GOOGLE_*, JIRA_*, KIAN_ENCRYPTION_KEY, OPENAI_API_KEY; minimum 1 instance, CPU always allocated |
+| No server errors on production in the hour before the check | pass | Cloud Run log query returned nothing at severity ERROR or above |
+| Automated multi-account journeys pass on the released code: approvals separate, partial outcomes preserved, interrupted send recovers without resending; cross-owner decisions refused, revoked trust requires manual approval; a second user cannot see the first user's tasks, connections or trust rules | pass | `pnpm test:e2e` 3 of 3 |
+| Browser security headers (HSTS, X-Content-Type-Options, frame and referrer policy, content security policy) | **finding** | Only `cache-control` is sent. Tracked as a follow-up story |
+
+### Live journey (to be run by the owner on production; write the result and your initials)
+
+| Check | Result | Evidence |
+| --- | --- | --- |
+| 1.1 to 1.2 A typed meeting becomes a card, nothing is written until Approve, then the event exists and Activity links it | pending | |
+| 1.3 to 1.4 A Jira story is proposed, edited, approved; the issue exists with the edited title | pending | |
+| 1.5 A rejected card writes nothing | pending | |
+| 1.6 (optional) An email card shows exact recipient, subject and body; it arrives | pending | |
+| 1.7 Voice: words appear live, can be corrected, the card matches what was sent | pending | |
+| 2.1 to 2.6 Calendar and Jira questions, a change card with before and after, a delete with approval, the introduction and photos | pending | |
+| 3.1 to 3.6 Trusted action runs by itself for the exact calendar, needs approval for another calendar, stops after Revoke, and is never offered for updates, deletes or status changes | pending | |
+| 4.1 to 4.7 Fresh account B sees nothing of A (chat, History, Activity, connections, memory, tasks); the photo address refuses signed-out requests | pending | |
+| F1 Revoked Google access: a plain "reconnect" note, a visible failed task, nothing marked done; reconnecting works | pending | |
+| F2 A status change outside the selected project cannot be approved | pending | |
+| F3 An ambiguous request gets one question and Approve stays disabled | pending | |
+| F4 One approved task succeeds while a refused one does not run; Activity shows each outcome | pending | |
+| F5 and F6 A count matches its lookup; an unsupported request is declined without a claim | pending | |
+| Provider timeout, interrupted send, restart in the middle of a send | automated only (not provoked on production) | runner tests and the e2e journey above |
+| Activity log and demo status are accurate after the run | pending | |
+
