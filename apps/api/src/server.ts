@@ -1,5 +1,6 @@
 import { join } from 'node:path';
 import fastifyStatic from '@fastify/static';
+import { registerSecurityHeaders, securityHeaderOptionsFromEnv } from './security-headers.js';
 import Fastify, { type FastifyInstance } from 'fastify';
 import { Pool } from 'pg';
 import { KianRepository, type Task } from '@kian/db';
@@ -26,6 +27,7 @@ type ServerOptions = { webDistPath?:string; verifyToken?: VerifyToken; repositor
 
 export function buildServer(options: ServerOptions = {}): FastifyInstance {
   const app = Fastify({ logger: true });
+  registerSecurityHeaders(app, securityHeaderOptionsFromEnv());
   const webDistPath=options.webDistPath || process.env.WEB_DIST_PATH;
   if(webDistPath) {
     app.register(fastifyStatic,{root:join(webDistPath,'assets'),prefix:'/assets/',wildcard:true});
