@@ -82,6 +82,28 @@ To clean a story by hand (for example one merged before this existed), run the w
 
 The web app has four pages: Home `/`, Activity `/activity`, Settings `/settings` and Account `/account` (reached from the profile menu at the top right). The API serves the app for a browser load of these paths (a request that accepts `text/html`); the app's own requests to `/activity` and other API paths still get JSON. Unknown paths return a 404 JSON error from the API. OAuth redirect URLs stay as the site root with a trailing slash (`https://<host>/`): the app moves that return to `/settings?code=...&state=...` before the page loads, where the connection is completed. Do not register `/settings` as a redirect.
 
+## Browser security headers (SFT-329)
+
+The API server adds these headers to every response (the page, web files, the API, errors and 404s) in `apps/api/src/security-headers.ts`:
+
+| Header | Value | Why |
+| --- | --- | --- |
+| `Strict-Transport-Security` | one year, includeSubDomains | the browser only uses https for this site |
+| `X-Content-Type-Options` | `nosniff` | no guessing of file types |
+| `X-Frame-Options` and CSP `frame-ancestors` | `DENY` / `'none'` | no other site can embed Kian |
+| `Referrer-Policy` | `strict-origin-when-cross-origin` | other sites see the origin only |
+| `Permissions-Policy` | microphone for Kian itself; camera, location, payment, USB and the like off | dictation works, nothing else |
+| `Content-Security-Policy` | see below | only what the app uses can load or connect |
+
+The content security policy allows: scripts, styles, fonts, API calls and manifest from the app itself; images from itself, `blob:` (the photos) and `data:`; media from `blob:` (dictation); connections to the Firebase email sign-in servers (`identitytoolkit.googleapis.com`, `securetoken.googleapis.com`); a frame from the Firebase sign-in domain `<firebase project>.firebaseapp.com` (taken from `GOOGLE_CLOUD_PROJECT`, or `KIAN_FIREBASE_AUTH_DOMAIN` if set). Nothing inline and no `unsafe-eval`; everything else is blocked (`default-src 'none'`).
+
+**If something stops working after a release** (sign-in, a provider return page, dictation or the photos), open the browser console: a blocked request is named there ("Refused to ... because it violates the following Content Security Policy directive"). Two ways to loosen it:
+
+1. **Quickest, no code change:** set `KIAN_CSP_MODE=report-only` on the Cloud Run service (`gcloud run services update <service> --region europe-west1 --update-env-vars KIAN_CSP_MODE=report-only`). The policy is then sent as `Content-Security-Policy-Report-Only`: the browser still lists violations in the console but blocks nothing. Remove the variable (`--remove-env-vars KIAN_CSP_MODE`) to enforce again.
+2. **Permanent:** add the one needed source to the matching directive in `contentSecurityPolicy()`, with a test in `security-headers.test.ts`. Never add `'unsafe-inline'`, `'unsafe-eval'` or a wildcard.
+
+**Check after a release:** `curl -sI https://kian.sepenta.io/` must list all six headers; do the same for `/settings` and `/health`. Then sign in, open Settings, record a short dictation and open the photos ("Who are you Kian?", "yes").
+
 ## Secrets and account configuration
 
 Supply `DATABASE_URL`, Firebase application default credentials and project ID, `OPENAI_API_KEY`, Google and Jira OAuth client values and one persistent base64 32-byte `KIAN_ENCRYPTION_KEY`. Store them in the deployment secret manager. `KIAN_PLANNING_MODEL` (optional) is a comma separated list of OpenAI models tried in order for Kian's conversation, default `gpt-4.1,gpt-4o`; an unavailable model falls through to the next. Conversation limits (4000 characters per message, 200 messages per conversation, 40 messages per user per 10 minutes, last 20 messages sent to the model) are in `apps/api/src/modules/conversations/service.ts`. Migrations run automatically on deploy; `002_conversations.sql` adds conversations and messages. Never commit customer mailbox passwords or OAuth tokens. Losing or rotating the encryption key without re-encryption makes saved connections unusable; ask users to reconnect.
