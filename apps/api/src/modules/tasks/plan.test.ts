@@ -42,7 +42,7 @@ describe('instruction planning', () => {
     for (const bad of [null, undefined, 'text', 42, [], { reply: 'x' }, { reply: 'x', tasks: 'no' }, { reply: 'x', tasks: Array(21).fill(email(['a@b.co'])) }]) {
       const result = await plan(bad);
       expect(result.tasks, JSON.stringify(bad)).toEqual([]);
-      expect(result.reply).toMatch(/could not turn that into something/);
+      expect(result.reply).toMatch(/could not work out what to do/);
     }
   });
 
@@ -53,7 +53,7 @@ describe('instruction planning', () => {
     expect(result.reply).toContain('I could not prepare part of that request.');
     const allBad = await plan({ reply: '', tasks: [{ action: 'send-money', parameters: {} }] });
     expect(allBad.tasks).toEqual([]);
-    expect(allBad.reply).toContain(CAPABILITIES);
+    expect(allBad.reply).toMatch(/could not work out what to do/);
   });
 
   it('flags a relative Friday date for clarification', async () => {
@@ -314,7 +314,7 @@ describe('Jira status changes in the planner', () => {
   it('accepts up to 20 status changes in one message and no more', async () => {
     const twenty = Array.from({ length: 20 }, (_, i) => move({ issueKey: `SFT-${i + 1}`, toStatus: 'Done' }));
     expect((await planWith({ reply: 'ok', tasks: twenty }, t, 'yes move SFT-1 SFT-2 SFT-3 SFT-4 SFT-5 SFT-6 SFT-7 SFT-8 SFT-9 SFT-10 SFT-11 SFT-12 SFT-13 SFT-14 SFT-15 SFT-16 SFT-17 SFT-18 SFT-19 SFT-20 SFT-99')).tasks).toHaveLength(20);
-    expect((await planWith({ reply: 'ok', tasks: [...twenty, move({ issueKey: 'SFT-99', toStatus: 'Done' })] }, t, 'yes move SFT-1 SFT-99')).reply).toMatch(/could not turn that into something/);
+    expect((await planWith({ reply: 'ok', tasks: [...twenty, move({ issueKey: 'SFT-99', toStatus: 'Done' })] }, t, 'yes move SFT-1 SFT-99')).reply).toMatch(/could not work out what to do/);
   });
 
   it('tells the model how to ask for status changes, and to use only the keys it was shown', () => {
@@ -411,7 +411,7 @@ describe('reliable commands in the planner', () => {
     expect((await run(claim.planner)).reply).toMatch(/not prepared anything yet/);
     const listed = scripted({ reply: 'Here are the 20 stories assigned to you.', tasks: [] });
     // With Jira or Google connected this is a promise of results with no lookup (sent back once); either way no invented list reaches the user.
-    expect((await run(listed.planner)).reply).toMatch(/not prepared anything yet|did not actually do it/);
+    expect((await run(listed.planner)).reply).toMatch(/not prepared anything yet|could not look that up this time/);
     const ask = scripted({ reply: 'I am preparing to delete the event at 10:00. Is that the right one?', tasks: [] });
     expect((await run(ask.planner)).reply).toMatch(/Is that the right one\?$/);
     const real = scripted({ reply: 'I am preparing to delete it.', tasks: [del('abc123')] });
@@ -657,7 +657,7 @@ describe('a promise to look something up that comes with no lookup', () => {
 
   it('says plainly that there is no answer yet when the retry still promises without a lookup', async () => {
     const result = await run(scripted({ reply: "I'll check your calendar for tomorrow.", tasks: [] }).planner, 'what is on tomorrow');
-    expect(result.reply).toMatch(/did not actually do it/);
+    expect(result.reply).toMatch(/could not look that up this time/);
     expect(result.reply).not.toMatch(/I'll check/);
   });
 
@@ -728,3 +728,45 @@ describe('weekday dates for the model', () => {
   });
 });
 
+
+describe('answers from the owner’s production testing (5 Oct)', () => {
+  const t: Thread = { history: [], pending: [], connections: [], jira: { connected: true, defaultProject: 'SFT' }, calendar: { connected: true } };
+  const scripted = (...answers: unknown[]) => { const contexts: PlanContext[] = []; let n = 0; return { planner: createPlanner(async (_t, _l, _z, c) => { contexts.push(c); return answers[Math.min(n++, answers.length - 1)]; }), contexts }; };
+  const run = (planner: ReturnType<typeof createPlanner>, text: string, thread: Thread = t) => planner('alice', text, 'en-GB', 'Europe/London', thread);
+
+  it('never leaves the user with a question about the project: it is sent back and the search runs', async () => {
+    for (const text of ['Show stories assigned to me', 'List my stories']) {
+      const { planner, contexts } = scripted({ reply: 'I can show your Jira stories, but which project should I search in? Could you tell me the project name or key?', tasks: [] }, { reply: 'Searching.', lookups: [{ type: 'search', assignee: 'me' }] });
+      const result = await run(planner, text);
+      expect(contexts, text).toHaveLength(2);
+      expect(contexts[1].repair).toMatch(/Do not ask which project/);
+      expect(result.lookups, text).toEqual([{ type: 'search', assignee: 'me' }]);
+    }
+  });
+
+  it('drops a project written as words ("fast track kanban board") and searches the project chosen in Settings', async () => {
+    const result = await run(scripted({ reply: 'Searching.', lookups: [{ type: 'search', project: 'Fast Track Kanban Board', assignee: 'me' }] }).planner, 'Show user stories assigned to me in fast track ka ban board');
+    expect(result.lookups).toEqual([{ type: 'search', assignee: 'me' }]);
+  });
+
+  it('keeps a real project key the user wrote', async () => {
+    const result = await run(scripted({ reply: 'Searching.', lookups: [{ type: 'search', project: 'OPS' }] }).planner, 'show stories in OPS');
+    expect(result.lookups).toEqual([{ type: 'search', project: 'OPS' }]);
+  });
+
+  it('still lets Kian ask for the project when creating an issue', async () => {
+    const result = await run(scripted({ reply: 'Which project should the new story go in?', tasks: [] }).planner, 'create a story about login');
+    expect(result.reply).toMatch(/Which project/);
+  });
+
+  it('tries twice before giving up on a promised lookup ("cancel my standup on Wednesday"), then asks for the day or name', async () => {
+    const { planner, contexts } = scripted({ reply: 'I will look up your daily standup on Wednesday.', tasks: [] }, { reply: 'Let me check.', tasks: [] }, { reply: 'Found it.', lookups: [{ type: 'calendar.agenda', from: '2026-10-07', text: 'standup' }] });
+    const result = await run(planner, 'Cancel my daily standup on Wednesday');
+    expect(contexts).toHaveLength(3);
+    expect(contexts[1].repair).toMatch(/calendar\.agenda/);
+    expect(result.calendarLookups).toEqual([{ type: 'calendar.agenda', from: '2026-10-07', text: 'standup' }]);
+    const stuck = await run(scripted({ reply: 'I will look that up.', tasks: [] }).planner, 'Cancel my daily standup on Wednesday');
+    expect(stuck.reply).toMatch(/could not look that up this time/);
+    expect(stuck.reply).not.toMatch(/ask again/i);
+  });
+});
