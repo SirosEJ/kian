@@ -28,8 +28,11 @@ export function safetyChecks(action: string): string[] {
 }
 
 /** Why a task cannot be trusted, when the box is off. */
-export function trustUnavailable(action: string): string | null {
-  return action.endsWith('.update') || action === 'jira.transition' || action === 'calendar.delete' ? 'Changes to existing items always need your approval.' : null;
+export function trustUnavailable(action: string, parameters?: Record<string, unknown> | null): string | null {
+  if (action.endsWith('.update') || action === 'jira.transition' || action === 'calendar.delete') return 'Changes to existing items always need your approval.';
+  // "Always do this" covers one exact recipient: an email to several people (or none yet) is approved each time.
+  if (action === 'email.send' && Array.isArray(parameters?.to) && parameters.to.length !== 1) return 'Always doing this works for one recipient at a time. An email to several people needs your approval each time.';
+  return null;
 }
 
 export function ruleSentence(rule: { action: string; constraints: { destinations: string[] }; connection_name?: string | null }): string {

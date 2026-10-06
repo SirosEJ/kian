@@ -142,3 +142,26 @@ describe('which mailbox an email card uses (SFT-341)', () => {
     await db.close();
   });
 });
+
+describe('trusting an email to several people (SFT-352)', () => {
+  const group = (...to: string[]): TaskProposal => ({ id: `g${++counter}`, action: 'email.send', connectionId: null, destination: to[0], parameters: { to, subject: 'Invitation to use Kian', body: 'Hi all' }, uncertainties: [], status: 'proposed' } as unknown as TaskProposal);
+
+  it('approves an email to several people without trust, and refuses trust for it with the reason in words (not a bare status)', async () => {
+    const { db, approvals } = await setup();
+    const [task] = await saveProposals(db, 'alice', 'Invite the team', [group('peyman@sepenta.io', 'nuray@sepenta.io')]);
+    await expect(approvals.decideTask('alice', task.id, 1, 'approve', { connectionId: 'mail', action: 'email.send', destinations: ['peyman@sepenta.io'] })).rejects.toMatchObject({ statusCode: 422, message: expect.stringMatching(/one recipient at a time.*Untick it/) });
+    expect((await stateOf(db, task.id)).state).toBe('proposed');
+    const approved = await approvals.decideTask('alice', task.id, 1, 'approve');
+    expect(approved.state).toBe('queued');
+    await db.close();
+  });
+
+  it('still trusts exactly one recipient, and refuses a card with no recipient at all', async () => {
+    const { db, approvals } = await setup();
+    const [one] = await saveProposals(db, 'alice', 'Email Peyman', [group('peyman@sepenta.io')]);
+    expect((await approvals.decideTask('alice', one.id, 1, 'approve', { connectionId: 'mail', action: 'email.send', destinations: ['peyman@sepenta.io'] })).state).toBe('queued');
+    const [none] = await saveProposals(db, 'alice', 'Email the team', [{ ...group('x@y.co'), destination: null, parameters: { to: [], subject: 'Invitation', body: 'Hi' } } as unknown as TaskProposal]);
+    await expect(approvals.decideTask('alice', none.id, 1, 'approve')).rejects.toMatchObject({ statusCode: 422 });
+    await db.close();
+  });
+});

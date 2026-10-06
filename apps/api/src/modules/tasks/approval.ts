@@ -47,7 +47,7 @@ export function createApprovalService(db: Queryable) {
         const { action, parameters, version: currentVersion, state } = current.rows[0] as {action:string;parameters:StoredProposal;version:number;state:string};
         if (currentVersion !== version || state !== 'proposed') throw failure(409, 'Task changed or was already decided');
         if (optionalRule.connectionId !== parameters.connectionId || optionalRule.action !== action || !parameters.destination || optionalRule.destinations.length !== 1 || optionalRule.destinations[0] !== parameters.destination ||
-          !evaluateTrust(ownerId, { action, connectionId:parameters.connectionId, destination:parameters.destination, parameters:parameters.fields, uncertainties:parameters.uncertainties }, [{ id:'candidate', ownerId, ...optionalRule, revokedAt:null }]).allowed) throw failure(422, 'Trust scope must match this task');
+          !evaluateTrust(ownerId, { action, connectionId:parameters.connectionId, destination:parameters.destination, parameters:parameters.fields, uncertainties:parameters.uncertainties }, [{ id:'candidate', ownerId, ...optionalRule, revokedAt:null }]).allowed) throw failure(422, action === 'email.send' && Array.isArray(parameters.fields?.to) && parameters.fields.to.length !== 1 ? 'Always doing this works for one recipient at a time. Untick it to approve an email to several people.' : 'Trust scope must match this task');
         const connection = await db.query('SELECT id FROM connections WHERE owner_id=$1 AND id=$2 AND disconnected_at IS NULL', [ownerId,optionalRule.connectionId]);
         if (!connection.rows.length) throw failure(422, 'Connect a service before trusting it');
       }

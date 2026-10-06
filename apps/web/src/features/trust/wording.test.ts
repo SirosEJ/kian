@@ -15,6 +15,12 @@ describe('trust and activity wording', () => {
   it('explains why updates cannot be trusted', () => {
     expect(trustUnavailable('calendar.update')).toMatch(/always need your approval/);
     expect(trustUnavailable('calendar.delete')).toMatch(/always need your approval/);
+    // An email to several people (or to nobody yet) is approved each time; one recipient can be trusted.
+    expect(trustUnavailable('email.send', { to: ['a@example.com', 'b@example.com'] })).toMatch(/one recipient at a time/);
+    expect(trustUnavailable('email.send', { to: [] })).toMatch(/one recipient at a time/);
+    expect(trustUnavailable('email.send', { to: ['a@example.com'] })).toBeNull();
+    expect(trustUnavailable('email.send')).toBeNull();
+    expect(trustUnavailable('calendar.create', { to: ['a', 'b'] })).toBeNull();
     expect(trustUnavailable('jira.update')).not.toBeNull();
     expect(trustUnavailable('email.send')).toBeNull();
   });
