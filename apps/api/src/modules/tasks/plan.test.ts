@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { buildChatMessages, CAPABILITIES, cleanLookups, createPlanner, knownIssueKeys, upcomingDays, PLANNER_INSTRUCTIONS, planningModels, type PlanContext, type Thread } from './plan.js';
+import { buildChatMessages, CAPABILITIES, cleanLookups, createPlanner, withoutReminderPromises, knownIssueKeys, upcomingDays, PLANNER_INSTRUCTIONS, planningModels, type PlanContext, type Thread } from './plan.js';
 
 const item = (action: string, destination: string | null = null, parameters: Record<string, unknown> = {}, uncertainties: string[] = []) => ({ action, connectionId: null, destination, parameters, uncertainties });
 const email = (to: string[], uncertainties: string[] = []) => item('email.send', to.length === 1 ? to[0] : null, { to, subject: 'Hi', body: 'Hello' }, uncertainties);
@@ -877,5 +877,30 @@ describe('email to people whose addresses Kian was never given (SFT-351)', () =>
   it('the instructions say where addresses may come from', () => {
     expect(PLANNER_INSTRUCTIONS).toMatch(/you only know an address if the user wrote it/);
     expect(PLANNER_INSTRUCTIONS).toMatch(/never say you included, added or used addresses you were not given/);
+  });
+});
+
+describe('no promises of reminders (SFT-355)', () => {
+  const t: Thread = { history: [], pending: [], connections: [], calendar: { connected: true }, jira: { connected: false, defaultProject: null } };
+  it('cuts a promise to remind, notify, alert or message, and says what Kian can do instead', () => {
+    for (const promise of ['I can remind you 10 minutes before your standup, but I need to know what time your standup is.', "I'll remind you before the meeting.", 'I will notify you when it starts.', 'Let me alert you 15 minutes before.', "I'm going to message you tomorrow.", 'I could ping you at 9.']) {
+      const out = withoutReminderPromises(promise);
+      expect(out, promise).toMatch(/cannot send reminders or notifications myself/);
+      expect(out, promise).not.toMatch(/I(?:'ll| will| can| could)\s+(?:remind|notify|alert|ping)|let me alert/i);
+    }
+    expect(withoutReminderPromises('Your standup is at 10:00. I can remind you 10 minutes before.')).toBe('Your standup is at 10:00. I cannot send reminders or notifications myself. I can add a calendar event at the time you want to be reminded, and Google Calendar will remind you.');
+  });
+  it('leaves honest and unrelated replies alone', () => {
+    for (const reply of ['Your standup is at 10:00.', 'I cannot send reminders, but I can add an event at 09:50.', 'You asked me to remind you; I am not able to do that.', 'Reminders: none found in the calendar.']) expect(withoutReminderPromises(reply), reply).toBe(reply);
+  });
+  it('applies to a planner answer and to the words written after a lookup', async () => {
+    const chat = await createPlanner(async () => ({ reply: 'I can remind you 10 minutes before your standup.', tasks: [] }))('alice', 'remind me before my standup', 'en-GB', 'Europe/London', t);
+    expect(chat.reply).toMatch(/cannot send reminders/);
+    const second = await createPlanner(async () => ({ reply: "Your standup is at 10:00. I'll remind you at 09:50." }))('alice', 'remind me before my standup', 'en-GB', 'Europe/London', { ...t, lookupResults: [{ type: 'calendar.agenda', count: 1 }] });
+    expect(second.reply).toBe('Your standup is at 10:00. I cannot send reminders or notifications myself. I can add a calendar event at the time you want to be reminded, and Google Calendar will remind you.');
+  });
+  it('the instructions say Kian cannot remind and what to do instead', () => {
+    expect(PLANNER_INSTRUCTIONS).toMatch(/You cannot send reminders, alarms or notifications/);
+    expect(PLANNER_INSTRUCTIONS).toMatch(/offer to add a calendar event at the reminder time/);
   });
 });

@@ -65,7 +65,7 @@ export function shownNote(tables: ResultTable[] | null | undefined): string {
     const searched = /Searched: ([^.]*)\./.exec(t.note ?? '')?.[1];
     // Calendar rows keep their event ids (never shown on screen), so "delete it" can name the exact event; the titles are untrusted text, cut short.
     if (t.refs?.length) {
-      const events = t.rows.slice(0, 10).map((r, i) => `[${t.refs![i]}] ${r[0]} ${r[1]} "${String(r[2]).slice(0, 60)}"`);
+      const events = t.rows.slice(0, 10).map((r, i) => `${t.refs![i] ? `[${t.refs![i]}] ` : ''}${r[0]} ${r[1]} "${String(r[2]).slice(0, 60)}"${t.refs![i] ? '' : ' (another calendar: read only, cannot be changed)'}`);
       return events.length ? [`${t.title}: ${events.join('; ')}`] : [];
     }
     const keys = t.rows.map(r => r[0]).filter(k => /^[A-Z][A-Z0-9_]+-\d+$/.test(k)).slice(0, 50);

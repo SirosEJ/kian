@@ -1,4 +1,5 @@
 import { saveJiraMapping } from './jira-mapping.js';
+import { reuseOrCreateConnection } from './reuse.js';
 import { randomBytes,randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Queryable } from '@kian/db';
@@ -45,8 +46,9 @@ export function registerJiraConnectionRoutes(app:FastifyInstance,db:Queryable,au
     if(!response.ok) return reply.code(502).send({error:'Jira authorization failed'});
     const token=await response.json() as {access_token?:string;refresh_token?:string;expires_in?:number};
     if(!token.access_token || !token.refresh_token) return reply.code(502).send({error:'Jira offline access is required'});
-    const sites=await jira.listSites(token.access_token),id=randomUUID();
-    await db.query("INSERT INTO connections(id,owner_id,provider,display_name,secret_ciphertext,settings) VALUES ($1,$2,'jira','Jira Cloud',$3,$4)",[id,owner,encryptSecret({...token,expires_at:Date.now()+(token.expires_in || 3600)*1000},config.encryptionKey),JSON.stringify({destination:null,siteId:null,siteUrl:null})]);
+    const sites=await jira.listSites(token.access_token);
+    // One Jira connection per person: connecting again refreshes it and keeps the site and project already chosen.
+    const {id}=await reuseOrCreateConnection(db,{owner,providers:['jira'],provider:'jira',displayName:'Jira Cloud',ciphertext:encryptSecret({...token,expires_at:Date.now()+(token.expires_in || 3600)*1000},config.encryptionKey),settings:{destination:null,siteId:null,siteUrl:null}});
     return reply.code(201).send({id,provider:'jira',sites});
   });
   app.get<{Params:{id:string}}>('/connections/jira/:id/sites',async req=>{

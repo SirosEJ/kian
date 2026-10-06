@@ -2,6 +2,7 @@ import { createCipheriv, createDecipheriv, randomBytes, randomUUID } from 'node:
 import type { FastifyInstance } from 'fastify';
 import type { Queryable } from '@kian/db';
 import { GoogleCalendarConnector } from '@kian/connectors';
+import { reuseOrCreateConnection } from './reuse.js';
 
 export type GoogleConfig = { clientId:string; clientSecret:string; redirectUri:string; encryptionKey:Buffer; request?:typeof fetch };
 const error = (statusCode:number,message:string) => Object.assign(new Error(message),{statusCode});
@@ -54,8 +55,9 @@ export function registerConnectionRoutes(app:FastifyInstance,db:Queryable,authen
     if(!tokensResponse.ok) return reply.code(502).send({error:'Google authorization failed'});
     const tokens=await tokensResponse.json() as {access_token?:string;refresh_token?:string;expires_in?:number};
     if(!tokens.access_token || !tokens.refresh_token) return reply.code(502).send({error:'Google did not provide offline access'});
-    const destinations=await google.listDestinations({accessToken:tokens.access_token}),id=randomUUID();
-    await db.query("INSERT INTO connections(id,owner_id,provider,display_name,secret_ciphertext,settings) VALUES ($1,$2,'google_calendar','Google Calendar',$3,$4)",[id,owner,encryptSecret({...tokens,expires_at:Date.now()+(tokens.expires_in || 3600)*1000},config.encryptionKey),JSON.stringify({destination:null})]);
+    const destinations=await google.listDestinations({accessToken:tokens.access_token});
+    // One Google Calendar connection per person: connecting again refreshes it and keeps the calendar already chosen.
+    const {id}=await reuseOrCreateConnection(db,{owner,providers:['google_calendar'],provider:'google_calendar',displayName:'Google Calendar',ciphertext:encryptSecret({...tokens,expires_at:Date.now()+(tokens.expires_in || 3600)*1000},config.encryptionKey),settings:{destination:null}});
     return reply.code(201).send({id,provider:'google_calendar',displayName:'Google Calendar',destinations});
   });
   app.get('/connections',async req=>(await db.query('SELECT id,provider,display_name,settings FROM connections WHERE owner_id=$1 AND disconnected_at IS NULL',[await authenticate(req)])).rows);

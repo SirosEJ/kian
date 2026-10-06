@@ -1,8 +1,8 @@
-import { randomUUID } from 'node:crypto';
 import type { FastifyInstance } from 'fastify';
 import type { Queryable } from '@kian/db';
 import { MailConnector, MailConnectionError, MAIL_PRESETS, presetById, type MailConnection, type MailFailureReason } from '@kian/connectors';
 import { decryptSecret, encryptSecret } from './routes.js';
+import { reuseOrCreateConnection } from './reuse.js';
 
 const BASE: Record<MailFailureReason, string> = {
   auth: 'The mail server rejected the email address or password. Check them.',
@@ -33,8 +33,9 @@ export function registerMailConnectionRoutes(app: FastifyInstance, db: Queryable
   }
   async function save(owner: string, provider: 'ionos' | 'mailbox', connection: MailConnection) {
     await db.query('INSERT INTO users(id) VALUES ($1) ON CONFLICT (id) DO NOTHING', [owner]);
-    const id = randomUUID(), settings = safe(connection, presetById(connection.preset)?.label ?? null);
-    await db.query('INSERT INTO connections(id,owner_id,provider,display_name,secret_ciphertext,settings) VALUES ($1,$2,$3,$4,$5,$6)', [id, owner, provider, connection.user, encryptSecret(connection, key), JSON.stringify(settings)]);
+    const settings = safe(connection, presetById(connection.preset)?.label ?? null);
+    // One connection per mailbox address: connecting it again refreshes the saved password and server instead of adding a second entry.
+    const { id } = await reuseOrCreateConnection(db, { owner, providers: ['ionos', 'mailbox'], provider, displayName: connection.user, ciphertext: encryptSecret(connection, key), settings, sameAccount: { key: 'mailbox', value: connection.user }, refresh: settings });
     return { id, provider, displayName: connection.user, settings };
   }
 
