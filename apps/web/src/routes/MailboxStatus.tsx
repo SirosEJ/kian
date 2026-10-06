@@ -2,13 +2,13 @@ import { useState, type FormEvent } from 'react';
 import { apiRequest } from '../api.js';
 import { Alert, Button } from '../components/index.js';
 
-export function MailboxStatus({ id, settings, onUpdated }: { id: string; settings: { mailbox?: string; host?: string }; onUpdated: () => Promise<void> }) {
+export function MailboxStatus({ id, settings, onUpdated }: { id: string; settings: { mailbox?: string; host?: string; presetLabel?: string }; onUpdated: () => Promise<void> }) {
   const [status, setStatus] = useState('');
   const [updating, setUpdating] = useState(false);
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
   const [busy, setBusy] = useState(false);
-  const base = `/connections/ionos/${encodeURIComponent(id)}`;
+  const base = `/connections/mailbox/${encodeURIComponent(id)}`;
 
   async function test() {
     setBusy(true); setError(''); setStatus('');
@@ -28,7 +28,7 @@ export function MailboxStatus({ id, settings, onUpdated }: { id: string; setting
   }
 
   return <div>
-    <p>Mailbox: {settings.mailbox}{settings.host ? ` (${settings.host})` : ''}</p>
+    <p>Mailbox: {settings.mailbox}{settings.presetLabel || settings.host ? ` (${settings.presetLabel ?? settings.host})` : ''}</p>
     <Button variant="secondary" disabled={busy} onClick={() => void test()}>Test connection</Button>
     <Button variant="ghost" disabled={busy} onClick={() => setUpdating(!updating)}>Update password</Button>
     {updating && <form onSubmit={event => void update(event)}><label>New mailbox password<input type="password" autoComplete="off" required value={password} onChange={event => setPassword(event.target.value)} /></label><Button type="submit" disabled={busy}>Verify and save</Button></form>}
