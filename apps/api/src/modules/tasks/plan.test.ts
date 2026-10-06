@@ -902,5 +902,6 @@ describe('no promises of reminders (SFT-355)', () => {
   it('the instructions say Kian cannot remind and what to do instead', () => {
     expect(PLANNER_INSTRUCTIONS).toMatch(/You cannot send reminders, alarms or notifications/);
     expect(PLANNER_INSTRUCTIONS).toMatch(/offer to add a calendar event at the reminder time/);
+    expect(PLANNER_INSTRUCTIONS).toMatch(/do not ask them for the time: return a calendar\.agenda lookup/);
   });
 });
