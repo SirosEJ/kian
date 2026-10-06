@@ -26,6 +26,7 @@ Release being tested: commit `30e4d08`, revision `kian-prod-00005-mpt` (check th
 | 1.5 | Type: `Book a meeting called DEMO reject me tomorrow at 15:00` then press **Reject** | The card shows rejected. Nothing appears in your calendar | |
 | 1.6 | (Optional) `Email <your other address> with subject DEMO and say this is a Kian demo` | A card with the exact recipient, subject and body. Approve; the message arrives | Message ID from Activity |
 | 1.7 | Hold the microphone button, say `Book a meeting called DEMO voice tomorrow at 11:00`, stop, **correct a word** in the box, send | The text appears while you speak, you can edit it, the card matches what you sent. Approve or reject | |
+| 1.8 | Settings, **Keyboard**: turn "Press Enter to send my message" off. Back on Home type two lines with Enter, then press **Ctrl+Enter** (or the Send button) | Enter adds a line, Ctrl+Enter sends one message; turn it back on and Enter sends again, with no reload |
 
 ## Part 2: questions and changes to existing things (account A)
 
