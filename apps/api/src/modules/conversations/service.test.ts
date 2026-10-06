@@ -4,7 +4,7 @@ import { readFile } from 'node:fs/promises';
 import type { TaskProposal } from '@kian/contracts';
 import { createApprovalService } from '../tasks/approval.js';
 import { ConversationError, createConversationService, LIMITS, shownNote, todayIn, type CalendarLookupPort, type EventCheck, type JiraLookupPort, type Plan } from './service.js';
-import type { Thread } from '../tasks/plan.js';
+import { createPlanner, type Thread } from '../tasks/plan.js';
 import { createMemoryStore } from '../memory/store.js';
 import { PERSONA_INTRO, PERSONA_PHOTOS, PHOTO_IDS } from '../persona/persona.js';
 
@@ -600,3 +600,33 @@ describe('conversation with Kian', () => {
   });
 });
 
+
+describe('chat turns and pending cards (SFT-345)', () => {
+  // The real planner with a scripted model: the model asks to replace on every turn, as a careless model might.
+  const proposal = { action: 'calendar.create', connectionId: null, destination: 'primary', parameters: { summary: 'Team sync', start: '2026-10-09T10:00:00+01:00', end: '2026-10-09T10:30:00+01:00', timeZone: 'Europe/London' }, uncertainties: [] };
+
+  it('keeps the card visible and decidable after a chat-only turn, and drops it only when the user cancels', async () => {
+    let n = 0;
+    const plan = createPlanner(async () => (n++ === 0 ? { reply: 'Ready for your review.', tasks: [proposal], pending: 'keep' } : { reply: 'Fifteen minutes is usual.', tasks: [], pending: 'replace' }));
+    const { db, service, approvals } = await setup(plan);
+    const first = await service.converse('alice', input('book a team sync on Friday at 10'));
+    const id = first.tasks[0].id;
+    const chat = await service.converse('alice', input('how long should a stand-up be?', first.conversationId));
+    expect(chat.reply).toBe('Fifteen minutes is usual.');
+    expect(await stateOf(db, id)).toBe('proposed');
+    // The card is still in the conversation and can still be approved.
+    expect((await service.get('alice', first.conversationId)).messages.flatMap(m => m.tasks).some(t => t.id === id && t.state === 'proposed')).toBe(true);
+    await service.converse('alice', input('cancel that', first.conversationId));
+    expect(await stateOf(db, id)).toBe('replaced');
+    await expect(approvals.decideTask('alice', id, 1, 'approve')).rejects.toMatchObject({ statusCode: 409 });
+  });
+
+  it('a mixed turn answers and prepares a card, which is a proposal and nothing is executed', async () => {
+    const plan = createPlanner(async () => ({ reply: 'Fifteen minutes is usual, so I prepared a short sync.', tasks: [proposal], pending: 'keep' }));
+    const { db, service } = await setup(plan);
+    const turn = await service.converse('alice', input('how long should it be? book one on Friday at 10'));
+    expect(turn.tasks).toHaveLength(1);
+    expect(await stateOf(db, turn.tasks[0].id)).toBe('proposed');
+    expect((await db.query("SELECT 1 FROM tasks WHERE state IN ('approved','queued','executing','succeeded')")).rows).toHaveLength(0);
+  });
+});

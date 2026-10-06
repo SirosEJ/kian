@@ -30,7 +30,8 @@ async function main() {
   const queue = CASES.flatMap(c => Array.from({ length: runs }, () => c));
   const worker = async () => {
     for (let c = queue.shift(); c; c = queue.shift()) {
-      try { scores.push(scoreCase(c, await withRetry(() => planInstruction('eval', c.text, 'en-GB', 'Europe/London', threadFor(c))), ctx)); }
+      const started = Date.now();
+      try { const result = await withRetry(() => planInstruction('eval', c.text, 'en-GB', 'Europe/London', threadFor(c))); scores.push({ ...scoreCase(c, result, ctx), ms: Date.now() - started }); }
       catch (error) { scores.push({ id: c.id, area: c.area, expected: [], got: 'reply', pass: false, failures: [`the planner failed: ${(error as Error).message.slice(0, 120)}`], clarified: false, unsafe: false }); }
     }
   };
