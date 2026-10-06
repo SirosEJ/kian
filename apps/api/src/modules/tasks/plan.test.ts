@@ -850,3 +850,32 @@ describe('conversation routing (SFT-345)', () => {
     expect(PLANNER_INSTRUCTIONS).toMatch(/choose the better option yourself/);
   });
 });
+
+describe('email to people whose addresses Kian was never given (SFT-351)', () => {
+  const t: Thread = { history: [], pending: [], connections: [{ provider: 'mailbox', name: 'siros@sepenta.io' }], jira: { connected: true, defaultProject: 'SFT' }, calendar: { connected: true } };
+  const noRecipient = { action: 'email.send', connectionId: null, destination: null, parameters: { to: [], subject: 'Invitation to use Kian', body: 'Hi team, Kian helps you manage tasks.' }, uncertainties: ['What are their email addresses?'] };
+  const plan = (reply: string, text: string, task: unknown = noRecipient) => createPlanner(async () => ({ reply, tasks: [task], pending: 'keep' }))('alice', text, 'en-GB', 'Europe/London', t);
+
+  it('replaces "I\'ve included your team members\' email addresses" with a plain request for the addresses', async () => {
+    for (const reply of ["I've included your team members' email addresses as recipients for the invitation to use Kian. Please review the draft.",
+      "I've prepared an email to your team members at their provided addresses, inviting them to use Kian. Please review and approve to send.",
+      'I added their email addresses as the destination.', 'Used the emails of your team members in the destination.']) {
+      const result = await plan(reply, 'use the emails of my team members in the destination');
+      expect(result.reply, reply).toMatch(/do not have those email addresses/);
+      expect(result.reply, reply).not.toMatch(/included|provided addresses|added their/i);
+      expect(result.tasks[0].uncertainties).toContain('What are their email addresses?');
+    }
+  });
+
+  it('leaves an honest reply alone, and a real recipient alone', async () => {
+    expect((await plan('Who should I send it to? I need their email addresses.', 'email my team')).reply).toBe('Who should I send it to? I need their email addresses.');
+    const withRecipient = { ...noRecipient, destination: 'peyman@sepenta.io', parameters: { to: ['peyman@sepenta.io'], subject: 'Hi', body: 'Hello' }, uncertainties: [] };
+    expect((await plan("I've prepared an email to Peyman for you to review.", 'email peyman@sepenta.io hello', withRecipient)).reply).toBe("I've prepared an email to Peyman for you to review.");
+    expect((await plan('I included peyman@sepenta.io as the recipient.', 'email peyman@sepenta.io hello', withRecipient)).reply).toMatch(/included peyman@sepenta\.io/);
+  });
+
+  it('the instructions say where addresses may come from', () => {
+    expect(PLANNER_INSTRUCTIONS).toMatch(/you only know an address if the user wrote it/);
+    expect(PLANNER_INSTRUCTIONS).toMatch(/never say you included, added or used addresses you were not given/);
+  });
+});
