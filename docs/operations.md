@@ -104,6 +104,31 @@ The content security policy allows: scripts, styles, fonts, API calls and manife
 
 **Check after a release:** `curl -sI https://kian.sepenta.io/` must list all six headers; do the same for `/settings` and `/health`. Then sign in, open Settings, record a short dictation and open the photos ("Who are you Kian?", "yes").
 
+## Email providers (SFT-341)
+
+Settings, Connections, **Connect email** connects any mailbox over SMTP. A person can connect several; each email card has a Connection list showing them by address, and the message is sent from the one chosen (with a single mailbox it is chosen automatically). Existing IONOS mailboxes keep working and appear in the same list.
+
+| Provider | Server and port | What the person needs |
+| --- | --- | --- |
+| Gmail | smtp.gmail.com, 465 SSL | 2-Step Verification on, then Google account, Security, App passwords |
+| Outlook.com / Hotmail | smtp-mail.outlook.com, 587 STARTTLS | an app password when two-step verification is on; Microsoft may refuse password sign-in for some accounts |
+| Microsoft 365 | smtp.office365.com, 587 STARTTLS | the administrator must allow "Authenticated SMTP" for the mailbox; often switched off |
+| Yahoo | smtp.mail.yahoo.com, 465 SSL | app password (Account security) |
+| iCloud | smtp.mail.me.com, 587 STARTTLS | app-specific password (appleid.apple.com) |
+| Zoho / Zoho EU | smtp.zoho.com or .eu, 465 SSL | application-specific password with two-factor |
+| Fastmail | smtp.fastmail.com, 465 SSL | app password with SMTP access |
+| GMX, mail.com | mail.gmx.com or smtp.mail.com, 587 STARTTLS | allow external programs to send mail in the settings |
+| IONOS UK, US, Germany | smtp.ionos.co.uk, .com, .de, 465 SSL | mailbox address and password |
+| Other server | typed by the person | outgoing server, port 25, 465, 587 or 2587; 465 means SSL, the others STARTTLS |
+
+The presets live in `packages/connectors/src/mail-presets.ts` (server, port, security and the plain-words steps shown in Settings). To add a provider, add one entry there and a line in this table; the Settings list is served from the same data (`GET /connections/mailbox/presets`).
+
+**Safety of "Other server".** Kian connects to whatever server the person types, so it is checked first (`mail-safety.ts`): a plain public DNS name only (no address literals, ports, paths, or single-label and internal suffixes such as .local, .internal, .lan); every address it resolves to must be public (loopback, private, link-local, carrier-grade NAT, documentation, multicast and the IPv6 and IPv4-mapped equivalents are refused); the connection then goes to the checked address while the certificate is verified for the typed name, so the name cannot be changed to an internal address between the check and the connection; only ports 25, 465, 587 and 2587; TLS is always required (SSL on 465, STARTTLS elsewhere), never plain text. The same check runs again on every test and every send. Presets use fixed servers and ignore any host sent by the browser.
+
+**Failures are explained per provider**: wrong password, "this provider needs an app password" (with the provider's steps), "password sign-in is switched off" (Microsoft 365 and some Outlook accounts), server not found, secure connection failed, timeout, "that server is not allowed". Passwords are stored encrypted like the other connections, never returned and never logged (the mail library's logging is off). Sending rules are unchanged: the card shows the exact recipients, subject and text; one send; an uncertain send is never retried automatically.
+
+**Limits.** Password sign-in is being phased out by Google and Microsoft: some Gmail and most Microsoft 365 organisations cannot use it. One-click Gmail (SFT-342) and Outlook / Microsoft 365 (SFT-343) sign-in are planned and need the owner to add the permissions to the Google app and to register an Azure app.
+
 ## Secrets and account configuration
 
 Supply `DATABASE_URL`, Firebase application default credentials and project ID, `OPENAI_API_KEY`, Google and Jira OAuth client values and one persistent base64 32-byte `KIAN_ENCRYPTION_KEY`. Store them in the deployment secret manager. `KIAN_PLANNING_MODEL` (optional) is a comma separated list of OpenAI models tried in order for Kian's conversation, default `gpt-4.1,gpt-4o`; an unavailable model falls through to the next. Conversation limits (4000 characters per message, 200 messages per conversation, 40 messages per user per 10 minutes, last 20 messages sent to the model) are in `apps/api/src/modules/conversations/service.ts`. Migrations run automatically on deploy; `002_conversations.sql` adds conversations and messages. Never commit customer mailbox passwords or OAuth tokens. Losing or rotating the encryption key without re-encryption makes saved connections unusable; ask users to reconnect.

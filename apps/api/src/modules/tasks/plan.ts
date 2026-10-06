@@ -4,6 +4,7 @@ import { ModelProposalSchema, type TaskProposal } from '@kian/contracts';
 import { parseLookups, type Lookup } from '../jira-insights/lookups.js';
 import { MEMORY_KINDS, MEMORY_LIMITS, type LearnedTerm, type MemoryHint } from '../memory/store.js';
 import { z } from 'zod';
+import { serves } from '../connections/provider-groups.js';
 import { parseCalendarLookups, type CalendarLookup } from '../calendar-insights/lookups.js';
 
 export type ThreadMessage = { role: 'user' | 'assistant'; content: string };
@@ -100,7 +101,7 @@ function withConnectionNotes(reply: string, tasks: TaskProposal[], thread: Threa
   if (/\bSettings\b/.test(reply)) return reply;
   const notes: string[] = [];
   for (const provider of new Set(tasks.map(t => PROVIDER_OF(t.action)))) {
-    const connected = thread.connections.filter(c => c.provider === provider).length;
+    const connected = thread.connections.filter(c => serves(c.provider, provider)).length;
     const label = PROVIDER_LABEL[provider];
     if (connected === 0) notes.push(`I don't see a connected ${label} yet. Connect it under Settings (open it from your profile at the top right) and I will use it.`);
     else if (connected > 1) notes.push(`You have more than one ${label} connected, so choose the one to use with Edit on the card.`);

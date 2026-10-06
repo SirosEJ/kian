@@ -1,11 +1,12 @@
 import type { Queryable } from '@kian/db';
-import { GoogleCalendarConnector,JiraConnector,IonosMailConnector,type IonosConnection,type CalendarCommand,type EmailCommand } from '@kian/connectors';
+import { isMailProvider } from '../connections/provider-groups.js';
+import { GoogleCalendarConnector,JiraConnector,MailConnector,type MailConnection,type CalendarCommand,type EmailCommand } from '@kian/connectors';
 import { decryptSecret,getGoogleAccessToken,type GoogleConfig } from '../connections/routes.js';
 import { getJiraConnection,type JiraConfig } from '../connections/jira-routes.js';
 import type { Executor } from './runner.js';
 import type { StoredProposal } from '../tasks/approval.js';
 
-export function createProviderExecutor(db:Queryable,key:Buffer,google?:GoogleConfig,jira?:JiraConfig):Executor {
+export function createProviderExecutor(db:Queryable,key:Buffer,google?:GoogleConfig,jira?:JiraConfig,mail:MailConnector=new MailConnector()):Executor {
   return async(owner,task,idempotencyKey)=>{
     const proposal=task.parameters as StoredProposal;
     if(!proposal.connectionId || !proposal.destination || proposal.uncertainties?.length) return {status:'failed',error:'A connection, destination and clarified task are required.'};
@@ -44,10 +45,10 @@ export function createProviderExecutor(db:Queryable,key:Buffer,google?:GoogleCon
       return adapter.execute(authorized,command,idempotencyKey);
     }
     if(task.action==='email.send') {
-      if(connection.provider!=='ionos') return {status:'failed',error:'Select an IONOS mailbox for this email.'};
-      const adapter=new IonosMailConnector(),command={action:'email.send',to:p.to,subject:p.subject,body:p.body} as EmailCommand;
+      if(!isMailProvider(connection.provider)) return {status:'failed',error:'Select one of your connected mailboxes for this email.'};
+      const adapter=mail,command={action:'email.send',to:p.to,subject:p.subject,body:p.body} as EmailCommand;
       try {adapter.validate(command);} catch {return {status:'failed',error:'Check exact recipient addresses, subject and message body.'};}
-      const mailbox=decryptSecret<IonosConnection>(connection.secret_ciphertext,key);
+      const mailbox=decryptSecret<MailConnection>(connection.secret_ciphertext,key);
       return adapter.execute(mailbox,command,idempotencyKey);
     }
     return {status:'failed',error:'Unsupported action'};

@@ -4,6 +4,7 @@ import type { TaskProposal } from '@kian/contracts';
 import { snapshotJiraFields } from '../connections/jira-mapping.js';
 import { transaction } from '../transaction.js';
 import { evaluateTrust, type TrustRule } from '../trust/policy.js';
+import { serves } from '../connections/provider-groups.js';
 
 const providerOf = (action: string) => action.startsWith('calendar.') ? 'google_calendar' : action.startsWith('jira.') ? 'jira' : 'ionos';
 
@@ -27,7 +28,7 @@ export async function saveProposalsIn(client: Queryable, ownerId: string, text: 
     const result: TaskProposal[] = [];
     for (const original of tasks) {
       const provider = providerOf(original.action);
-      const candidates = connections.filter(c => c.provider === provider && (!original.connectionId || original.connectionId === c.id));
+      const candidates = connections.filter(c => serves(c.provider, provider) && (!original.connectionId || original.connectionId === c.id));
       const chosen = candidates.length === 1 ? candidates[0] : null;
       const task = { ...original, parameters: provider === 'jira' && chosen ? snapshotJiraFields(original.parameters, chosen.settings) : original.parameters, connectionId: chosen?.id || null, destination: original.destination || chosen?.settings.destination || null };
       const trust = evaluateTrust(ownerId, task, rules);

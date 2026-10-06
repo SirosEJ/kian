@@ -107,3 +107,38 @@ describe('proposals and trust: when Kian acts alone and when it asks', () => {
     await db.close();
   });
 });
+
+describe('which mailbox an email card uses (SFT-341)', () => {
+  const connectionOf = async (db: PGlite, id: string) => (await db.query<{ parameters: { connectionId: string | null } }>('SELECT parameters FROM tasks WHERE id=$1', [id])).rows[0].parameters.connectionId;
+
+  it('picks the one mailbox automatically, whether it is an older IONOS mailbox or one connected with a preset', async () => {
+    const { db } = await setup();
+    await db.query("DELETE FROM connections WHERE owner_id='alice'");
+    await db.query("INSERT INTO connections(id,owner_id,provider,display_name) VALUES ('gmail','alice','mailbox','me@gmail.com')");
+    const [one] = await saveProposals(db, 'alice', 'Email Sam', [email('sam@example.com')]);
+    expect(await connectionOf(db, one.id)).toBe('gmail');
+    await db.close();
+  });
+
+  it('leaves the choice to the user when there are several mailboxes, and lets the card name one of them', async () => {
+    const { db } = await setup();
+    await db.query("INSERT INTO connections(id,owner_id,provider,display_name) VALUES ('gmail','alice','mailbox','me@gmail.com'),('outlook','alice','mailbox','me@outlook.com')");
+    const [open] = await saveProposals(db, 'alice', 'Email Sam', [email('sam@example.com')]);
+    expect(await connectionOf(db, open.id)).toBeNull();
+    const [chosen] = await saveProposals(db, 'alice', 'Email Sam from Outlook', [{ ...email('sam@example.com'), connectionId: 'outlook' }]);
+    expect(await connectionOf(db, chosen.id)).toBe('outlook');
+    // A mailbox of another user is never chosen.
+    const [other] = await saveProposals(db, 'alice', 'Email Sam from Bob', [{ ...email('sam@example.com'), connectionId: 'bob-mail' }]);
+    expect(await connectionOf(db, other.id)).toBeNull();
+    await db.close();
+  });
+
+  it('never takes a calendar or Jira connection for an email', async () => {
+    const { db } = await setup();
+    await db.query("DELETE FROM connections WHERE owner_id='alice'");
+    await db.query("INSERT INTO connections(id,owner_id,provider,display_name) VALUES ('cal','alice','google_calendar','Calendar'),('jira','alice','jira','Jira')");
+    const [none] = await saveProposals(db, 'alice', 'Email Sam', [email('sam@example.com')]);
+    expect(await connectionOf(db, none.id)).toBeNull();
+    await db.close();
+  });
+});

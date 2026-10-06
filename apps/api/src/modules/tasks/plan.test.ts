@@ -778,3 +778,15 @@ describe('stories of another person (production, 5 Oct)', () => {
     expect(result.lookups).toEqual([{ type: 'search', assigneeName: 'Nuray Guner' }]);
   });
 });
+
+describe('the note about mailboxes (SFT-341)', () => {
+  const emailTask = { action: 'email.send', connectionId: null, destination: 'sam@example.com', parameters: { to: ['sam@example.com'], subject: 'Hi', body: 'Hello' }, uncertainties: [] };
+  const plan = (connections: { provider: string; name: string }[]) => createPlanner(async () => ({ reply: 'Ready for your review.', tasks: [emailTask], pending: 'keep' }))('alice', 'email Sam hello', 'en-GB', 'Europe/London', { history: [], pending: [], connections });
+  it('asks to connect one when there is none, and to choose when there are several of any kind', async () => {
+    expect((await plan([])).reply).toMatch(/Connect it under Settings/);
+    expect((await plan([{ provider: 'mailbox', name: 'me@gmail.com' }])).reply).toBe('Ready for your review.');
+    expect((await plan([{ provider: 'ionos', name: 'me@sepenta.io' }])).reply).toBe('Ready for your review.');
+    expect((await plan([{ provider: 'mailbox', name: 'me@gmail.com' }, { provider: 'ionos', name: 'me@sepenta.io' }])).reply).toMatch(/more than one mailbox connected, so choose the one to use with Edit/);
+    expect((await plan([{ provider: 'google_calendar', name: 'Google' }])).reply).toMatch(/Connect it under Settings/);
+  });
+});
