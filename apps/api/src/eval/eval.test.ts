@@ -10,7 +10,7 @@ describe('the command evaluation set', () => {
   it('has unique ids, covers every area, and includes the owner\'s own phrases', () => {
     const ids = CASES.map(c => c.id);
     expect(new Set(ids).size).toBe(ids.length);
-    expect(new Set(CASES.map(c => c.area))).toEqual(new Set(['jira', 'calendar', 'actions', 'honesty']));
+    expect(new Set(CASES.map(c => c.area))).toEqual(new Set(['jira', 'calendar', 'actions', 'honesty', 'conversation']));
     expect(CASES.length).toBeGreaterThanOrEqual(25);
     const texts = CASES.map(c => c.text);
     for (const phrase of ['show me the stories in To Do', 'move all deployed status ones into done', 'there is a booking as a test in my calendar for tomorrow I want you to delete it']) expect(texts).toContain(phrase);
@@ -85,5 +85,16 @@ describe('running the evaluation reliably', () => {
     expect(text).toContain('reply: Can you confirm the exact time');
     const passing = CASES.find(x => x.id === 'honest-greeting')!;
     expect(scoreCase(passing, await run(passing, { reply: 'Hello!', tasks: [] }), ctx).saw).toBeUndefined();
+  });
+});
+
+describe('timing in the report', () => {
+  it('reports the median and the slowest tenth of the planner time when answers were timed, and nothing when they were not', () => {
+    const base: CaseScore = { id: 'a', area: 'jira', expected: ['reply'], got: 'reply', pass: true, failures: [], clarified: false, unsafe: false };
+    const timed = buildReport([1000, 2000, 3000, 4000, 10000].map((ms, i) => ({ ...base, id: `c${i}`, ms })));
+    expect(timed.latency).toEqual({ medianMs: 3000, p90Ms: 10000 });
+    expect(markdown(timed)).toMatch(/median 3\.0 s, slowest tenth 10\.0 s/);
+    expect(buildReport([base]).latency).toBeUndefined();
+    expect(markdown(buildReport([base]))).not.toMatch(/Planner time/);
   });
 });
