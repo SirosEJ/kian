@@ -630,3 +630,12 @@ describe('chat turns and pending cards (SFT-345)', () => {
     expect((await db.query("SELECT 1 FROM tasks WHERE state IN ('approved','queued','executing','succeeded')")).rows).toHaveLength(0);
   });
 });
+
+describe('the note of what was shown includes events on other calendars without letting them be targeted (SFT-354)', () => {
+  it('names an event on the chosen calendar by its reference and marks one on another calendar as read only', () => {
+    const note = shownNote([{ title: 'Agenda, Wed 7 Oct', columns: ['Day', 'Time', 'Event'], rows: [['Wed 7 Oct', '09:00–09:30', 'Dentist'], ['Wed 7 Oct', '10:00–10:15', 'Daily standup']], links: [null, null], refs: ['evt-mine', ''] } as never]);
+    expect(note).toContain('[evt-mine] Wed 7 Oct 09:00–09:30 "Dentist"');
+    expect(note).toContain('Wed 7 Oct 10:00–10:15 "Daily standup" (another calendar: read only, cannot be changed)');
+    expect(note).not.toMatch(/\[\]/);
+  });
+});

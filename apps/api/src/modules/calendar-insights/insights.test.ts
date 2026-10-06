@@ -12,7 +12,7 @@ function fake(events: CalendarEventRow[] | ((min: string, max: string) => Calend
     events: async (_c, calendarId, min, max, options) => { calls.push({ kind: 'events', args: [calendarId, min, max, options?.q] }); return { events: typeof events === 'function' ? events(min, max) : events, truncated: false }; },
     details: async (_c, calendarId, _min, _max, q) => { calls.push({ kind: 'details', args: [calendarId, q] }); return []; },
     event: async () => { throw new Error('unused'); },
-    calendars: async () => [{ id: 'me@example.com', name: 'Me', primary: true }, { id: 'team@group', name: 'Team calendar', primary: false }],
+    calendars: async () => [{ id: 'me@example.com', name: 'Me', primary: true }, { id: 'team@group', name: 'Team calendar', primary: false, selected: false }],
     ...extra,
   };
   return { reader, calls };
@@ -166,3 +166,91 @@ describe('what a calendar lookup teaches the memory', () => {
   });
 });
 
+
+
+describe('reading all of the person\'s calendars (SFT-354)', () => {
+  const standup = (id: string, over: Partial<CalendarEventRow> = {}): CalendarEventRow => ev(id, '10:00', '10:15', { title: 'Daily standup', ...over });
+  const lists = [
+    { id: 'me@example.com', name: 'Me', primary: true, selected: true, role: 'owner' },
+    { id: 'work@sepenta.io', name: 'Sepenta work', primary: false, selected: true, role: 'writer' },
+    { id: 'en.uk#holiday@group.v.calendar.google.com', name: 'Holidays in United Kingdom', primary: false, selected: true, role: 'reader' },
+    { id: 'addressbook#contacts@group.v.calendar.google.com', name: 'Birthdays', primary: false, selected: true, role: 'reader' },
+    { id: 'busy@other', name: 'Busy only', primary: false, selected: true, role: 'freeBusyReader' },
+    { id: 'hidden@group', name: 'Hidden', primary: false, selected: false, role: 'reader' },
+  ];
+  function perCalendar(byCalendar: Record<string, CalendarEventRow[] | Error>) {
+    const asked: string[] = [];
+    const reader: CalendarReader = {
+      events: async (_c, calendarId) => { asked.push(calendarId); const got = byCalendar[calendarId]; if (got instanceof Error) throw got; return { events: got ?? [], truncated: false }; },
+      details: async () => [], event: async () => { throw new Error('unused'); }, calendars: async () => lists,
+    };
+    return { reader, asked };
+  }
+
+  it('finds a meeting that is on a work calendar, not only on the calendar chosen in Settings', async () => {
+    const { reader, asked } = perCalendar({ 'me@example.com': [], 'work@sepenta.io': [standup('w1')] });
+    const out = await createCalendarInsights(reader).run(conn, [{ type: 'calendar.agenda', from: '2026-10-03', text: 'standup' }], ctx);
+    expect(asked.sort()).toEqual(['me@example.com', 'work@sepenta.io']);
+    expect(out.tables[0].rows.map(r => r[2])).toEqual(['Daily standup']);
+    expect(out.tables[0].columns).toContain('Calendar');
+    expect(out.tables[0].rows[0].at(-1)).toBe('Sepenta work');
+    expect(out.tables[0].note).toMatch(/Searched calendars: Me, Sepenta work\./);
+    expect(out.digest[0]).toMatchObject({ count: 1, calendarsSearched: ['Me', 'Sepenta work'] });
+  });
+
+  it('leaves out holidays, birthdays, busy-only and hidden calendars', async () => {
+    const { reader, asked } = perCalendar({});
+    await createCalendarInsights(reader).run(conn, [{ type: 'calendar.agenda', from: '2026-10-03' }], ctx);
+    expect(asked.sort()).toEqual(['me@example.com', 'work@sepenta.io']);
+  });
+
+  it('reads at most eight calendars, the one chosen in Settings first', async () => {
+    const many = Array.from({ length: 12 }, (_, i) => ({ id: `c${i}@x`, name: `C${i}`, primary: false, selected: true, role: 'reader' }));
+    const asked: string[] = [];
+    const reader: CalendarReader = { events: async (_c, id) => { asked.push(id); return { events: [], truncated: false }; }, details: async () => [], event: async () => { throw new Error('unused'); }, calendars: async () => [...many, { id: 'me@example.com', name: 'Me', primary: true, selected: true, role: 'owner' }] };
+    await createCalendarInsights(reader).run(conn, [{ type: 'calendar.agenda', from: '2026-10-03' }], ctx);
+    expect(asked).toHaveLength(8);
+    expect(asked).toContain('me@example.com');
+  });
+
+  it('shows the same meeting once when it is on two calendars, and merges by start time', async () => {
+    const { reader } = perCalendar({ 'me@example.com': [standup('a'), ev('z', '16:00', '17:00')], 'work@sepenta.io': [standup('a-copy'), ev('m', '12:00', '13:00')] });
+    const out = await createCalendarInsights(reader).run(conn, [{ type: 'calendar.agenda', from: '2026-10-03' }], ctx);
+    expect(out.tables[0].rows.map(r => `${r[1]} ${r[2]}`)).toEqual(['10:00–10:15 Daily standup', '12:00–13:00 Event m', '16:00–17:00 Event z']);
+  });
+
+  it('gives no event reference to an event on another calendar, so it can be read but never offered for a delete or an update', async () => {
+    const { reader } = perCalendar({ 'me@example.com': [ev('mine', '09:00', '09:30')], 'work@sepenta.io': [standup('theirs')] });
+    const out = await createCalendarInsights(reader).run(conn, [{ type: 'calendar.agenda', from: '2026-10-03' }], ctx);
+    expect(out.tables[0].rows.map(r => r[2])).toEqual(['Event mine', 'Daily standup']);
+    expect(out.tables[0].refs).toEqual(['mine', '']);
+    expect(out.tables[0].note).toMatch(/can be read here but not changed/);
+  });
+
+  it('a calendar that cannot be read is a note and the answer still comes from the others; all failing is a plain error', async () => {
+    const some = perCalendar({ 'me@example.com': [ev('mine', '09:00', '09:30')], 'work@sepenta.io': new CalendarReadError('forbidden', 'no') });
+    const out = await createCalendarInsights(some.reader).run(conn, [{ type: 'calendar.agenda', from: '2026-10-03' }], ctx);
+    expect(out.tables[0].rows).toHaveLength(1);
+    expect(out.notes.join(' ')).toMatch(/could not read the calendar "Sepenta work"/);
+    const none = perCalendar({ 'me@example.com': new CalendarReadError('expired', 'Google access expired. Reconnect in Settings.'), 'work@sepenta.io': new CalendarReadError('expired', 'Google access expired. Reconnect in Settings.') });
+    const failed = await createCalendarInsights(none.reader).run(conn, [{ type: 'calendar.agenda', from: '2026-10-03' }], ctx);
+    expect(failed.notes.join(' ')).toMatch(/Reconnect in Settings/);
+  });
+
+  it('a calendar the person names is the only one read', async () => {
+    const { reader, asked } = perCalendar({ 'work@sepenta.io': [standup('w1')] });
+    const out = await createCalendarInsights(reader).run(conn, [{ type: 'calendar.agenda', from: '2026-10-03', calendar: 'Sepenta work' }], ctx);
+    expect(asked).toEqual(['work@sepenta.io']);
+    expect(out.tables[0].columns).not.toContain('Calendar');
+  });
+
+  it('free and busy counts every calendar, and without a calendar list it still reads the chosen one', async () => {
+    const { reader } = perCalendar({ 'me@example.com': [], 'work@sepenta.io': [ev('x', '10:00', '11:00')] });
+    const out = await createCalendarInsights(reader).run(conn, [{ type: 'calendar.free', date: '2026-10-03', startTime: '09:00', endTime: '12:00' }], ctx);
+    expect(out.tables[0].rows.map(r => `${r[0]} ${r[1]}`)).toEqual(['Free 09:00–10:00', 'Busy 10:00–11:00', 'Free 11:00–12:00']);
+    const asked: string[] = [];
+    const broken: CalendarReader = { events: async (_c, id) => { asked.push(id); return { events: [], truncated: false }; }, details: async () => [], event: async () => { throw new Error('unused'); }, calendars: async () => { throw new Error('list failed'); } };
+    await createCalendarInsights(broken).run(conn, [{ type: 'calendar.agenda', from: '2026-10-03' }], ctx);
+    expect(asked).toEqual(['me@example.com']);
+  });
+});

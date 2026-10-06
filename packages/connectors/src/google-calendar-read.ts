@@ -7,7 +7,8 @@ export type CalendarEventRow = {
   attendeeCount: number; busy: boolean;
 };
 export type CalendarEventDetail = CalendarEventRow & { description: string; attendees: { name: string; email: string; response: string }[] };
-export type CalendarInfo = { id: string; name: string; primary: boolean };
+/** `selected` is whether the calendar is shown in the person's Google Calendar list; `role` is their access (owner, writer, reader, freeBusyReader). */
+export type CalendarInfo = { id: string; name: string; primary: boolean; selected?: boolean; role?: string };
 export type CalendarEventsResult = { events: CalendarEventRow[]; truncated: boolean };
 
 const MAX_TEXT = 500;
@@ -53,8 +54,8 @@ export class GoogleCalendarReader {
   }
 
   async calendars(connection: GoogleConnection): Promise<CalendarInfo[]> {
-    const body = await this.get(connection, 'users/me/calendarList', { maxResults: '250', fields: 'items(id,summary,summaryOverride,primary)' });
-    return ((body.items ?? []) as any[]).map(c => ({ id: String(c.id), name: text(c.summaryOverride ?? c.summary, 100) || String(c.id), primary: Boolean(c.primary) }));
+    const body = await this.get(connection, 'users/me/calendarList', { maxResults: '250', fields: 'items(id,summary,summaryOverride,primary,selected,accessRole)' });
+    return ((body.items ?? []) as any[]).map(c => ({ id: String(c.id), name: text(c.summaryOverride ?? c.summary, 100) || String(c.id), primary: Boolean(c.primary), selected: c.selected === undefined ? undefined : Boolean(c.selected), ...(typeof c.accessRole === 'string' ? { role: c.accessRole } : {}) }));
   }
 
   /** Real occurrences (recurring events expanded) between two instants, in start order. `details` also returns descriptions and attendee names, only when asked. */
